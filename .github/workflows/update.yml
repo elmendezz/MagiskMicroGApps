@@ -31,25 +31,31 @@ jobs:
           # 1. MicroG (GmsCore)
           echo "Descargando MicroG..."
           MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and endswith(".apk")) | .browser_download_url' | head -n 1)
-          wget -qO new_apks/GmsCore.apk "$MICROG_URL"
+          # Usamos -U para hacernos pasar por un navegador y evitar bloqueos (Exit Code 8)
+          wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
           
           # 2. Aurora Store
           echo "Descargando Aurora Store..."
-          # Buscamos la URL directa del APK en la API de GitLab más reciente
-          AURORA_URL=$(curl -s "https://gitlab.com/api/v4/projects/AuroraOSS%2FAuroraStore/releases" | grep -oP '"url":"\K[^"]+\.apk' | grep -i "Aurora" | head -n 1)
+          # Obtenemos la información de la última release desde la API de GitLab
+          AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
           
-          # Fallback oficial a F-Droid si GitLab no tiene el APK adjunto correctamente
-          if [ -z "$AURORA_URL" ]; then
-            echo "GitLab API no devolvió un .apk directo, usando fallback de F-Droid..."
-            AURORA_URL=$(curl -s https://f-droid.org/en/packages/com.aurora.store/ | grep -oP 'href="\K[^"]+\.apk' | head -n 1)
+          # Extraemos la ruta del "/uploads/..." directamente de la descripción (cuerpo del texto)
+          UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
+          
+          if [ -n "$UPLOAD_PATH" ]; then
+            # Reconstruimos el enlace con el ID del proyecto exactamente como funciona en GitLab
+            AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
+          else
+            # Respaldo en caso de que vuelvan a usar la sección de links
+            AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
           fi
           
-          echo "Enlace de Aurora obtenido: $AURORA_URL"
-          wget -qO new_apks/AuroraStore.apk "$AURORA_URL"
+          echo "Enlace final de Aurora: $AURORA_URL"
+          wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$AURORA_URL"
 
           # 3. FakeGApps
           echo "Descargando FakeGApps..."
-          wget -qO new_apks/FakeGApps.apk "https://github.com/whew-inc/FakeGApps/releases/download/latest/app-release.apk"
+          wget -qO new_apks/FakeGApps.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://github.com/whew-inc/FakeGApps/releases/download/latest/app-release.apk"
 
       - name: 🔍 Obtener versiones y generar Changelog
         id: versions
