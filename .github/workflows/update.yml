@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aapt jq curl wget zip unzip
 
-          - name: 📦 Descargar APKs más recientes
+      - name: 📦 Descargar APKs más recientes
         id: download_apks
         run: |
           mkdir -p new_apks
