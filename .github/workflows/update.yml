@@ -89,44 +89,31 @@ jobs:
           OLD_AURORA=$(get_version "old_apks/system/app/AuroraStore/AuroraStore.apk")
           OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
 
-          # --- LÓGICA REFORZADA PARA VERSION Y VERSIONCODE ---
-          # 1. Limpiamos retornos de carro de Windows que rompen todo
           sed -i 's/\r$//' module.prop
 
-          # 2. Extraemos el versionCode y eliminamos cualquier espacio en blanco
           OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
-          
-          # 3. Sumamos 1 matemáticamente de forma segura
           NEW_VC=$((OLD_VC + 1))
-          
-          # 4. Extraer SOLO los números de la versión (ej. de "A13-MicroG" saca "13")
           OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
-          
-          # 5. Incrementar versión (+0.1)
           NEW_VER=$(echo $OLD_VER | awk -F. '{if(NF==1){print $1".1"}else{$NF = $NF + 1; print $0}}' | sed 's/ /./g')
-          
-          # 6. Construir el nuevo Tag limpio (ej. "A13.1-MicroG")
           FINAL_TAG="A${NEW_VER}-MicroG"
 
-          # Exportar para siguientes pasos
           echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
           echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
 
-          # Actualizar module.prop
           sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop
           sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop
 
-          # Escribir Changelog
-          echo "### Changelog" > changelog.md
+          # --- GENERACIÓN DE CHANGELOG BILINGÜE ---
+          echo "### Changelog / Registro de cambios" > changelog.md
           
           compare_and_log() {
              name=$1; old=$2; new=$3
              if [ "$old" = "0.0.0" ]; then
-               echo "- **$name**: Añadido por primera vez (v$new)" >> changelog.md
+               echo "- **$name**: First time added / Añadido por primera vez (v$new)" >> changelog.md
              elif [ "$old" = "$new" ]; then
-               echo "- **$name**: Inactualizable (Mantenido en v$new)" >> changelog.md
+               echo "- **$name**: Up to date / Inactualizable (Maintained in / Mantenido en v$new)" >> changelog.md
              else
-               echo "- **$name**: Actualizado de v$old a v$new" >> changelog.md
+               echo "- **$name**: Updated from v$old to v$new / Actualizado de v$old a v$new" >> changelog.md
              fi
           }
 
@@ -134,11 +121,11 @@ jobs:
           compare_and_log "Aurora Store" "$OLD_AURORA" "$NEW_AURORA"
           compare_and_log "FakeGApps" "$OLD_FAKEGAPPS" "$NEW_FAKEGAPPS"
           
-          echo "- **PlayStore / Otros**: Inactualizable (Se mantienen sin cambios)" >> changelog.md
+          echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
           
           cat changelog.md
 
-      - name: 🛠️ Construir Zips (32-bit y 64-bit)
+      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar module.props
         run: |
           for ARCH in 32 64; do
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
@@ -153,6 +140,20 @@ jobs:
             cp new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/
             
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
+
+            # Modificamos el updateJson dentro del module.prop para este ZIP en específico
+            if [ "$ARCH" == "32" ]; then
+              JSON_FILE="update32.json"
+            else
+              JSON_FILE="update.json"
+            fi
+            
+            # Si existe updateJson, lo reemplaza. Si no existe, lo agrega al final del archivo.
+            if grep -q "^updateJson=" build-${ARCH}/module.prop; then
+              sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
+            else
+              echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
+            fi
           done
 
           # Extraer librerías .so
@@ -162,8 +163,9 @@ jobs:
           cd build-32 && zip -r9 ../MicroGiskGApps-32.zip . && cd ..
           cd build-64 && zip -r9 ../MicroGiskGApps-64.zip . && cd ..
 
-      - name: 📝 Generar update.json y Commitear cambios al Repo
+      - name: 📝 Generar update.jsons y Commitear cambios al Repo
         run: |
+          # Generar para 64 bits
           cat <<EOF > update.json
           {
             "version": "${{ env.FINAL_TAG }}",
@@ -173,10 +175,21 @@ jobs:
           }
           EOF
 
+          # Generar para 32 bits
+          cat <<EOF > update32.json
+          {
+            "version": "${{ env.FINAL_TAG }}",
+            "versionCode": ${{ env.NEW_VC }},
+            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip",
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+          }
+          EOF
+
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add module.prop update.json changelog.md
+          # Agregamos ambos JSONs al commit
+          git add module.prop update.json update32.json changelog.md
           git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
           git push
 
