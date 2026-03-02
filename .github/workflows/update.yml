@@ -20,117 +20,63 @@ jobs:
 
       - name: ⚙️ Configurar Entorno (aapt, jq, curl)
         run: |
-          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix
+          sudo apt-get install -y aapt jq curl wget zip unzip
 
-      - name: 📦 Descargar APKs más recientes (MicroG no-HW, Aurora, FakeGApps)
+      - name: 📦 Descargar APKs más recientes
         id: download_apks
         run: |
-          set -euo pipefail
           mkdir -p new_apks
-          cd $(pwd)
-
-          # --- MICROG (excluir -hw) ---
-          echo "Descargando MicroG (normal, excluyendo -hw)..."
-          MICROG_API="https://api.github.com/repos/microg/GmsCore/releases/latest"
-          MICROG_URL=$(curl -sSL "$MICROG_API" \
-            | jq -r '
-              .assets[] |
-              select(
-                (.name | test("com.google.android.gms") ) and
-                (.name | test("\\.apk$")) and
-                ( (.name | test("-hw")) | not )
-              ) |
-              .browser_download_url
-            ' | head -n 1)
-
-          if [ -z "$MICROG_URL" ] || [ "$MICROG_URL" == "null" ]; then
-            echo "ERROR: No se pudo determinar URL de MicroG (no-HW)."
-            exit 1
+          
+          # 1. MicroG (GmsCore)
+          echo "Descargando MicroG..."
+          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and endswith(".apk")) | .browser_download_url' | head -n 1)
+          wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
+          
+          # 2. Aurora Store
+          echo "Descargando Aurora Store..."
+          AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
+          UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
+          
+          if [ -n "$UPLOAD_PATH" ]; then
+            AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
+          else
+            AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
           fi
+          
+          echo "Enlace final de Aurora: $AURORA_URL"
+          wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$AURORA_URL"
 
-          echo "MicroG URL: $MICROG_URL"
-          curl -fL -A "Mozilla/5.0" -o new_apks/GmsCore.apk "$MICROG_URL"
-          if [ ! -s new_apks/GmsCore.apk ]; then echo "ERROR: MicroG no descargado correctamente"; exit 1; fi
-
-          # --- AURORA STORE (varias estrategias de fallback) ---
-          echo "Descargando Aurora Store (intentando varios métodos)..."
-          AURORA_URL=""
-
-          # 1) Intentar GitLab releases (proyecto 6922885)
-          AURORA_API=$(curl -sSL "https://gitlab.com/api/v4/projects/6922885/releases" || true)
-          if [ -n "$AURORA_API" ]; then
-            # Primer intento: buscar links de assets
-            AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url|test("(?i)\\.apk$")) | .url' | head -n 1 || true)
-            # Si no sale, intentar parsear description uploads
-            if [ -z "$AURORA_URL" ]; then
-              UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1 || true)
-              if [ -n "$UPLOAD_PATH" ]; then
-                AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
-              fi
-            fi
-          fi
-
-          # 2) Fallback a GitHub (AuroraOSS/AuroraStore)
-          if [ -z "$AURORA_URL" ]; then
-            echo "GitLab no dio APK directo, probando GitHub..."
-            AURORA_URL=$(curl -sSL "https://api.github.com/repos/AuroraOSS/AuroraStore/releases/latest" | jq -r '.assets[]? | select(.name|test("(?i)\\.apk$")) | .browser_download_url' | head -n 1 || true)
-          fi
-
-          # 3) Último recurso: buscar en F-Droid (no siempre disponible)
-          if [ -z "$AURORA_URL" ]; then
-            echo "Intentando fallback en F-Droid..."
-            # Nota: F-Droid no siempre ofrece un simple endpoint; esto es solo intento adicional (no garantizado).
-            AURORA_URL=""
-          fi
-
-          if [ -z "$AURORA_URL" ]; then
-            echo "ERROR: No se pudo resolver URL de Aurora Store. Revisa el proyecto en GitLab/GitHub."
-            exit 1
-          fi
-
-          echo "Aurora URL: $AURORA_URL"
-          curl -fL -A "Mozilla/5.0" -o new_apks/AuroraStore.apk "$AURORA_URL"
-          if [ ! -s new_apks/AuroraStore.apk ]; then echo "ERROR: AuroraStore.apk no descargado correctamente"; exit 1; fi
-
-          # --- FAKEGAPPS ---
+          # 3. Obtener FakeGApps
           echo "Descargando FakeGApps..."
-          FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest" || true)
-          FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name || true)
-          FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1 || true)
+          FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
+          FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
+          FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1)
 
           if [ -z "$FAKEGAPPS_URL" ] || [ "$FAKEGAPPS_URL" == "null" ]; then
-            echo "No encontré asset en release de FakeGApps, usando fallback 6.6"
             FAKEGAPPS_VER="6.6"
             FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
           fi
+          
+          echo "Versión de FakeGApps detectada: $FAKEGAPPS_VER"
+          echo "Enlace final de FakeGApps: $FAKEGAPPS_URL"
+          curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
 
-          echo "FakeGApps URL: $FAKEGAPPS_URL"
-          curl -fL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
-          if [ ! -s new_apks/FakeGApps.apk ]; then echo "ERROR: FakeGApps.apk no descargado correctamente"; exit 1; fi
-
-          echo "Descargas completadas. Listado de archivos:"
-          ls -lh new_apks || true
-
-      - name: 🔍 Obtener versiones antiguas y generar Changelog (bilingüe)
+      - name: 🔍 Obtener versiones y generar Changelog
         id: versions
         run: |
-          set -euo pipefail
           mkdir -p old_apks
-          # Intentar descargar release ZIP anterior (64) y extraer APKs para comparar versiones
+          
           LATEST_RELEASE_URL="https://github.com/${{ github.repository }}/releases/latest/download/MicroGiskGApps-64.zip"
-          if curl -sSL --fail "$LATEST_RELEASE_URL" -o old.zip; then
+          if curl -sL --fail "$LATEST_RELEASE_URL" -o old.zip; then
             unzip -q old.zip "system/priv-app/GmsCore/GmsCore.apk" -d old_apks || true
             unzip -q old.zip "system/app/AuroraStore/AuroraStore.apk" -d old_apks || true
             unzip -q old.zip "system/priv-app/FakeGApps/FakeGApps.apk" -d old_apks || true
-          else
-            echo "No se encontró ZIP anterior o no fue descargable (ok si es la primera vez)."
           fi
 
           get_version() {
             if [ -f "$1" ]; then
-              aapt dump badging "$1" 2>/dev/null | grep versionName | awk -F"'" '{print $4}' || echo "0.0.0"
+              aapt dump badging "$1" | grep versionName | awk -F"'" '{print $4}'
             else
               echo "0.0.0"
             fi
@@ -144,7 +90,6 @@ jobs:
           OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
 
           sed -i 's/\r$//' module.prop
-          dos2unix module.prop
 
           OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
           NEW_VC=$((OLD_VC + 1))
@@ -159,10 +104,8 @@ jobs:
           sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop
 
           # --- GENERACIÓN DE CHANGELOG BILINGÜE ---
-          cat > changelog.md <<'CHL'
-### Changelog / Registro de cambios
-CHL
-
+          echo "### Changelog / Registro de cambios" > changelog.md
+          
           compare_and_log() {
              name=$1; old=$2; new=$3
              if [ "$old" = "0.0.0" ]; then
@@ -177,69 +120,52 @@ CHL
           compare_and_log "MicroG (GmsCore)" "$OLD_MICROG" "$NEW_MICROG"
           compare_and_log "Aurora Store" "$OLD_AURORA" "$NEW_AURORA"
           compare_and_log "FakeGApps" "$OLD_FAKEGAPPS" "$NEW_FAKEGAPPS"
-
+          
           echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
-
-          echo "----"
+          
           cat changelog.md
-          echo "----"
 
       - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar module.props
         run: |
-          set -euo pipefail
-          rm -rf build-32 build-64
           for ARCH in 32 64; do
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
             mkdir -p build-${ARCH}/system/app/AuroraStore
-
-            # Copiar estructura base
-            cp -r META-INF build-${ARCH}/ || true
-            cp module.prop build-${ARCH}/
-            cp customize.sh build-${ARCH}/ || true
-            cp uninstall.sh build-${ARCH}/ || true
+            
+            cp -r META-INF module.prop customize.sh uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
-
+            
             cp new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/
             cp new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/
             cp new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/
+            
+            [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
 
-            # Forzar newline final en module.prop antes de append
-            sed -i -e '$a\' build-${ARCH}/module.prop
-
+            # Modificamos el updateJson dentro del module.prop para este ZIP en específico
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
             else
               JSON_FILE="update.json"
             fi
-
-            # Reemplazar o agregar updateJson (si existe, reemplaza)
+            
+            # Si existe updateJson, lo reemplaza. Si no existe, lo agrega al final del archivo.
             if grep -q "^updateJson=" build-${ARCH}/module.prop; then
               sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
             else
               echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
             fi
-
-            # Permisos
-            chmod -R 755 build-${ARCH}/META-INF || true
-            chmod 644 build-${ARCH}/module.prop || true
-            [ -f build-${ARCH}/customize.sh ] && chmod 755 build-${ARCH}/customize.sh || true
-            [ -f build-${ARCH}/uninstall.sh ] && chmod 755 build-${ARCH}/uninstall.sh || true
-            [ -d build-${ARCH}/common ] && chmod -R 755 build-${ARCH}/common || true
-
-            # Extraer librerías .so apropiadas
-            if [ "$ARCH" == "32" ]; then
-              unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-${ARCH}/system/priv-app/GmsCore/lib/ || true
-            else
-              unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-${ARCH}/system/priv-app/GmsCore/lib/ || true
-            fi
-
-            (cd build-${ARCH} && zip -r9 ../MicroGiskGApps-${ARCH}.zip .)
           done
 
-      - name: 📝 Generar update.jsons y Commitear cambios al Repo (incluye changelog.md)
+          # Extraer librerías .so
+          unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-32/system/priv-app/GmsCore/lib/arm || true
+          unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-64/system/priv-app/GmsCore/lib/arm64 || true
+
+          cd build-32 && zip -r9 ../MicroGiskGApps-32.zip . && cd ..
+          cd build-64 && zip -r9 ../MicroGiskGApps-64.zip . && cd ..
+
+      - name: 📝 Generar update.jsons y Commitear cambios al Repo
         run: |
-          set -euo pipefail
+          # Generar para 64 bits
           cat <<EOF > update.json
           {
             "version": "${{ env.FINAL_TAG }}",
@@ -249,6 +175,7 @@ CHL
           }
           EOF
 
+          # Generar para 32 bits
           cat <<EOF > update32.json
           {
             "version": "${{ env.FINAL_TAG }}",
@@ -260,10 +187,11 @@ CHL
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add module.prop update.json update32.json changelog.md || true
+          
+          # Agregamos ambos JSONs al commit
+          git add module.prop update.json update32.json changelog.md
           git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
-          git push || echo "Push falló (revisa permisos del token)"
+          git push
 
       - name: 🚀 Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
