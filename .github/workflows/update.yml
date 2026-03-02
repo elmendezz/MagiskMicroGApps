@@ -21,7 +21,7 @@ jobs:
       - name: ⚙️ Configurar Entorno (aapt, jq, curl, dos2unix)
         run: |
           sudo apt-get update
-          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix
+          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix rsync
 
       - name: 📦 Descargar APKs más recientes
         id: download_apks
@@ -110,29 +110,31 @@ jobs:
           echo "" >> changelog.md
           echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
 
-      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template
+      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template MMT-Extended
         run: |
-          # 1. Descargar el Template Oficial de Magisk para Evitar Error 2
-          wget -qO magisk_template.zip https://github.com/topjohnwu/magisk-module-template/archive/master.zip
-          unzip -q magisk_template.zip
+          # 1. Clonar el Template MMT-Extended
+          git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
           
           for ARCH in 32 64; do
+            # 2. Copiar todo el template a nuestra carpeta de construcción
+            rsync -a mmt_template/ build-${ARCH}/
+            
+            # 3. Limpiar basura del template
+            rm -rf build-${ARCH}/.git build-${ARCH}/README.md build-${ARCH}/.gitignore
+            
+            # 4. Crear estructura de carpetas de sistema
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
             mkdir -p build-${ARCH}/system/priv-app/Companion
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
             mkdir -p build-${ARCH}/system/app/AuroraStore
             
-            # Usar el META-INF puro del template oficial de Magisk
-            cp -r magisk-module-template-master/META-INF build-${ARCH}/
-            
-            # Copiar nuestros scripts base y props
+            # 5. Sobrescribir con nuestros archivos locales (module.prop, uninstall.sh)
             cp module.prop build-${ARCH}/
-            [ -f customize.sh ] && cp customize.sh build-${ARCH}/ || touch build-${ARCH}/customize.sh
             [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
             
-            # Copiar APKs
+            # 6. Copiar APKs
             cp new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/
             [ -f new_apks/Companion.apk ] && cp new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/
             cp new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/
@@ -155,7 +157,7 @@ jobs:
             fi
 
             # --- CORRECCIÓN FINAL CRLF ---
-            # Convertimos scripts a formato UNIX para que Magisk no se rompa (Exit Code 2)
+            # Convertimos scripts a formato UNIX para evitar Exit Code 2
             find build-${ARCH} -type f \( -name "*.sh" -o -name "*.prop" \) -exec dos2unix {} +
           done
 
