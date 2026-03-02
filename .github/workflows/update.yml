@@ -18,10 +18,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ⚙️ Configurar Entorno (aapt, jq, curl)
+      - name: ⚙️ Configurar Entorno (aapt, jq, curl, dos2unix)
         run: |
           sudo apt-get update
-          sudo apt-get install -y aapt jq curl wget zip unzip
+          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix
 
       - name: 📦 Descargar APKs más recientes
         id: download_apks
@@ -89,7 +89,8 @@ jobs:
           OLD_AURORA=$(get_version "old_apks/system/app/AuroraStore/AuroraStore.apk")
           OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
 
-          sed -i 's/\r$//' module.prop
+          # Limpiar retornos de carro antes de leer
+          dos2unix module.prop
 
           OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
           NEW_VC=$((OLD_VC + 1))
@@ -122,8 +123,6 @@ jobs:
           compare_and_log "FakeGApps" "$OLD_FAKEGAPPS" "$NEW_FAKEGAPPS"
           
           echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
-          
-          cat changelog.md
 
       - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar module.props
         run: |
@@ -141,19 +140,29 @@ jobs:
             
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
 
-            # Modificamos el updateJson dentro del module.prop para este ZIP en específico
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
             else
               JSON_FILE="update.json"
             fi
             
-            # Si existe updateJson, lo reemplaza. Si no existe, lo agrega al final del archivo.
+            # --- CORRECCIÓN DEL SALTO DE LÍNEA ---
+            # Aseguramos que el archivo termine con un salto de línea limpio
+            sed -i -e '$a\' build-${ARCH}/module.prop
+            
+            # Si existe updateJson, lo reemplaza. Si no existe, lo agrega al final.
             if grep -q "^updateJson=" build-${ARCH}/module.prop; then
               sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
             else
               echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
             fi
+
+            # --- CORRECCIÓN DEL EXIT CODE 2 (Evitar saltos CRLF de Windows) ---
+            # Convertimos todos los scripts a formato UNIX para que Android no falle
+            find build-${ARCH} -type f \( -name "*.sh" -o -name "*.prop" \) -exec dos2unix {} +
+            
+            # Damos permisos de ejecución explícitos a los scripts necesarios
+            chmod +x build-${ARCH}/customize.sh build-${ARCH}/uninstall.sh build-${ARCH}/META-INF/com/google/android/update-binary || true
           done
 
           # Extraer librerías .so
@@ -165,7 +174,6 @@ jobs:
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         run: |
-          # Generar para 64 bits
           cat <<EOF > update.json
           {
             "version": "${{ env.FINAL_TAG }}",
@@ -175,7 +183,6 @@ jobs:
           }
           EOF
 
-          # Generar para 32 bits
           cat <<EOF > update32.json
           {
             "version": "${{ env.FINAL_TAG }}",
@@ -188,7 +195,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Agregamos ambos JSONs al commit
           git add module.prop update.json update32.json changelog.md
           git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
           git push
