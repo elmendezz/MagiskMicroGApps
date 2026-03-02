@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aapt jq curl wget zip unzip
 
-      - name: 📦 Descargar APKs más recientes
+          - name: 📦 Descargar APKs más recientes
         id: download_apks
         run: |
           mkdir -p new_apks
@@ -33,13 +33,18 @@ jobs:
           MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and endswith(".apk")) | .browser_download_url' | head -n 1)
           wget -qO new_apks/GmsCore.apk "$MICROG_URL"
           
-          # 2. Aurora Store (GitLab API)
+          # 2. Aurora Store
           echo "Descargando Aurora Store..."
-          AURORA_URL=$(curl -s "https://gitlab.com/api/v4/projects/AuroraOSS%2FAuroraStore/releases" | jq -r '.[0].assets.links[] | select(.url | endswith(".apk")) | .url' | head -n 1)
-          # Fallback en caso de que el link de GitLab cambie
-          if [ -z "$AURORA_URL" ] || [ "$AURORA_URL" == "null" ]; then
-            AURORA_URL="https://gitlab.com/AuroraOSS/AuroraStore/-/releases/permalink/latest/downloads/AuroraStore.apk"
+          # Buscamos la URL directa del APK en la API de GitLab más reciente
+          AURORA_URL=$(curl -s "https://gitlab.com/api/v4/projects/AuroraOSS%2FAuroraStore/releases" | grep -oP '"url":"\K[^"]+\.apk' | grep -i "Aurora" | head -n 1)
+          
+          # Fallback oficial a F-Droid si GitLab no tiene el APK adjunto correctamente
+          if [ -z "$AURORA_URL" ]; then
+            echo "GitLab API no devolvió un .apk directo, usando fallback de F-Droid..."
+            AURORA_URL=$(curl -s https://f-droid.org/en/packages/com.aurora.store/ | grep -oP 'href="\K[^"]+\.apk' | head -n 1)
           fi
+          
+          echo "Enlace de Aurora obtenido: $AURORA_URL"
           wget -qO new_apks/AuroraStore.apk "$AURORA_URL"
 
           # 3. FakeGApps
