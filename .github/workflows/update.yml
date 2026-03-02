@@ -18,12 +18,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ⚙️ Configurar Entorno (aapt, jq, curl, dos2unix)
+      - name: ⚙️ Configurar Entorno (aapt, jq, curl, dos2unix, zipalign)
         run: |
           sudo apt-get update
-          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix rsync
+          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix rsync zipalign
 
-      - name: 📦 Descargar APKs más recientes
+      - name: 📦 Descargar APKs más recientes (Incluyendo Backends FOSS)
         id: download_apks
         run: |
           mkdir -p new_apks
@@ -33,9 +33,9 @@ jobs:
           MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
           wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
 
-          # 2. MicroG Companion (Vending / FakeStore)
+          # 2. MicroG Companion (Vending / FakeStore) - Corregido para excluir Huawei
           echo "Descargando MicroG Companion..."
-          COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and endswith(".apk")) | .browser_download_url' | head -n 1)
+          COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
           if [ -n "$COMPANION_URL" ]; then
             wget -qO new_apks/Companion.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$COMPANION_URL"
           fi
@@ -63,15 +63,39 @@ jobs:
             FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
           fi
           curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
+          
+          # 5. Descargar Mozilla Ichnaea Backend (FOSS Location)
+          echo "Descargando Mozilla Location Backend..."
+          MOZILLA_URL=$(curl -s "https://api.github.com/repos/microg/IchnaeaNlpBackend/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
+          if [ -n "$MOZILLA_URL" ] && [ "$MOZILLA_URL" != "null" ]; then
+            wget -qO new_apks/MozillaBackend.apk "$MOZILLA_URL"
+          fi
 
-      - name: 🔍 Obtener versiones y generar Changelog
+          # 6. Descargar Nominatim Geocoder Backend (FOSS Search)
+          echo "Descargando Nominatim Geocoder..."
+          NOMINATIM_URL=$(curl -s "https://api.github.com/repos/microg/NominatimGeocoderBackend/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
+          if [ -n "$NOMINATIM_URL" ] && [ "$NOMINATIM_URL" != "null" ]; then
+            wget -qO new_apks/Nominatim.apk "$NOMINATIM_URL"
+          fi
+
+      - name: 🚀 Optimizar APKs (Zipalign)
+        run: |
+          echo "Alineando APKs para mejor rendimiento de RAM..."
+          for apk in new_apks/*.apk; do
+            if [ -f "$apk" ]; then
+              zipalign -p -v 4 "$apk" "${apk%.apk}-aligned.apk" || true
+              mv "${apk%.apk}-aligned.apk" "$apk" || true
+            fi
+          done
+
+      - name: 🔍 Obtener versiones y generar Changelog Base
         id: versions
         run: |
           get_version() {
             if [ -f "$1" ]; then
               aapt dump badging "$1" | grep versionName | awk -F"'" '{print $4}'
             else
-              echo "0.0.0"
+              echo "0.0.0 (No encontrado)"
             fi
           }
 
@@ -102,13 +126,14 @@ jobs:
 
           # --- GENERACIÓN DE CHANGELOG BILINGÜE ---
           echo "### Changelog / Registro de cambios" > changelog.md
-          
           echo "- **MicroG (GmsCore)**: v$NEW_MICROG" >> changelog.md
           echo "- **MicroG Companion**: v$NEW_COMPANION" >> changelog.md
           echo "- **Aurora Store**: v$NEW_AURORA" >> changelog.md
           echo "- **FakeGApps**: v$NEW_FAKEGAPPS" >> changelog.md
+          echo "- **FOSS Backends**: Included (Mozilla NLP & Nominatim)" >> changelog.md
           echo "" >> changelog.md
           echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
+          echo "" >> changelog.md
 
       - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template MMT-Extended
         run: |
@@ -119,26 +144,31 @@ jobs:
             # 2. Copiar todo el template a nuestra carpeta de construcción
             rsync -a mmt_template/ build-${ARCH}/
             
-            # 3. Limpiar basura del template
-            rm -rf build-${ARCH}/.git build-${ARCH}/README.md build-${ARCH}/.gitignore
+            # 3. Limpiar basura del template y destruir placeholders
+            rm -rf build-${ARCH}/.git build-${ARCH}/.github build-${ARCH}/README.md build-${ARCH}/.gitignore build-${ARCH}/changelog.md build-${ARCH}/LICENSE build-${ARCH}/update.json build-${ARCH}/install.zip
+            find build-${ARCH} -type f -iname "*placeholder*" -delete
             
-            # 4. Crear estructura de carpetas de sistema
+            # 4. Crear estructura de carpetas de sistema asegurando que existan
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
             mkdir -p build-${ARCH}/system/priv-app/Companion
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
             mkdir -p build-${ARCH}/system/app/AuroraStore
+            mkdir -p build-${ARCH}/system/app/MozillaBackend
+            mkdir -p build-${ARCH}/system/app/Nominatim
             
-            # 5. Sobrescribir con nuestros archivos locales (module.prop, uninstall.sh)
+            # 5. Sobrescribir con nuestros archivos locales
             cp module.prop build-${ARCH}/
             [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
             
-            # 6. Copiar APKs
-            cp new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/
-            [ -f new_apks/Companion.apk ] && cp new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/
-            cp new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/
-            cp new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/
+            # 6. Copiar APKs FORZANDO el nombre del archivo destino (-f)
+            cp -f new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/GmsCore.apk
+            [ -f new_apks/Companion.apk ] && cp -f new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/Companion.apk
+            cp -f new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/FakeGApps.apk
+            cp -f new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/AuroraStore.apk
+            [ -f new_apks/MozillaBackend.apk ] && cp -f new_apks/MozillaBackend.apk build-${ARCH}/system/app/MozillaBackend/MozillaBackend.apk || true
+            [ -f new_apks/Nominatim.apk ] && cp -f new_apks/Nominatim.apk build-${ARCH}/system/app/Nominatim/Nominatim.apk || true
 
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
@@ -156,17 +186,22 @@ jobs:
               echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
             fi
 
-            # --- CORRECCIÓN FINAL CRLF ---
             # Convertimos scripts a formato UNIX para evitar Exit Code 2
             find build-${ARCH} -type f \( -name "*.sh" -o -name "*.prop" \) -exec dos2unix {} +
           done
 
-          # Extraer librerías .so (GmsCore)
+          # Extraer librerías .so (GmsCore) apuntando al APK correcto dentro de las carpetas de compilación
           unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-32/system/priv-app/GmsCore/lib/arm || true
           unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-64/system/priv-app/GmsCore/lib/arm64 || true
 
           cd build-32 && zip -r9 ../MicroGiskGApps-32.zip . && cd ..
           cd build-64 && zip -r9 ../MicroGiskGApps-64.zip . && cd ..
+
+      - name: 🔒 Generar Hashes de Seguridad y anexar al Changelog
+        run: |
+          echo "### 🔒 Checksums (SHA256)" >> changelog.md
+          echo "- **64-bit:** \`$(sha256sum MicroGiskGApps-64.zip | awk '{print $1}')\`" >> changelog.md
+          echo "- **32-bit:** \`$(sha256sum MicroGiskGApps-32.zip | awk '{print $1}')\`" >> changelog.md
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         run: |
