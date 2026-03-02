@@ -28,12 +28,19 @@ jobs:
         run: |
           mkdir -p new_apks
           
-          # 1. MicroG (GmsCore)
+          # 1. MicroG (GmsCore) NORMAL (Excluyendo versiones -hw de Huawei)
           echo "Descargando MicroG..."
-          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and endswith(".apk")) | .browser_download_url' | head -n 1)
+          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
           wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
+
+          # 2. MicroG Companion (Vending / FakeStore)
+          echo "Descargando MicroG Companion..."
+          COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and endswith(".apk")) | .browser_download_url' | head -n 1)
+          if [ -n "$COMPANION_URL" ]; then
+            wget -qO new_apks/Companion.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$COMPANION_URL"
+          fi
           
-          # 2. Aurora Store
+          # 3. Aurora Store
           echo "Descargando Aurora Store..."
           AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
           UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
@@ -43,11 +50,9 @@ jobs:
           else
             AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
           fi
-          
-          echo "Enlace final de Aurora: $AURORA_URL"
-          wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$AURORA_URL"
+          wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0" "$AURORA_URL"
 
-          # 3. Obtener FakeGApps
+          # 4. Obtener FakeGApps
           echo "Descargando FakeGApps..."
           FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
           FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
@@ -57,23 +62,11 @@ jobs:
             FAKEGAPPS_VER="6.6"
             FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
           fi
-          
-          echo "Versión de FakeGApps detectada: $FAKEGAPPS_VER"
-          echo "Enlace final de FakeGApps: $FAKEGAPPS_URL"
           curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
 
       - name: 🔍 Obtener versiones y generar Changelog
         id: versions
         run: |
-          mkdir -p old_apks
-          
-          LATEST_RELEASE_URL="https://github.com/${{ github.repository }}/releases/latest/download/MicroGiskGApps-64.zip"
-          if curl -sL --fail "$LATEST_RELEASE_URL" -o old.zip; then
-            unzip -q old.zip "system/priv-app/GmsCore/GmsCore.apk" -d old_apks || true
-            unzip -q old.zip "system/app/AuroraStore/AuroraStore.apk" -d old_apks || true
-            unzip -q old.zip "system/priv-app/FakeGApps/FakeGApps.apk" -d old_apks || true
-          fi
-
           get_version() {
             if [ -f "$1" ]; then
               aapt dump badging "$1" | grep versionName | awk -F"'" '{print $4}'
@@ -83,14 +76,12 @@ jobs:
           }
 
           NEW_MICROG=$(get_version "new_apks/GmsCore.apk")
+          NEW_COMPANION=$(get_version "new_apks/Companion.apk")
           NEW_AURORA=$(get_version "new_apks/AuroraStore.apk")
           NEW_FAKEGAPPS=$(get_version "new_apks/FakeGApps.apk")
-          OLD_MICROG=$(get_version "old_apks/system/priv-app/GmsCore/GmsCore.apk")
-          OLD_AURORA=$(get_version "old_apks/system/app/AuroraStore/AuroraStore.apk")
-          OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
 
           # Limpiar retornos de carro antes de leer
-          dos2unix module.prop
+          [ -f module.prop ] && dos2unix module.prop || touch module.prop
 
           OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
           NEW_VC=$((OLD_VC + 1))
@@ -101,44 +92,51 @@ jobs:
           echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
           echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
 
-          sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop
-          sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop
+          # Actualizar versiones en module.prop localmente para el commit
+          sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop || echo "versionCode=$NEW_VC" >> module.prop
+          sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop || echo "version=$FINAL_TAG" >> module.prop
+          
+          # Renombrar Módulo
+          sed -i 's/^id=.*/id=MicroGiskGApps/' module.prop || echo "id=MicroGiskGApps" >> module.prop
+          sed -i 's/^name=.*/name=MicroGiskGApps/' module.prop || echo "name=MicroGiskGApps" >> module.prop
 
           # --- GENERACIÓN DE CHANGELOG BILINGÜE ---
           echo "### Changelog / Registro de cambios" > changelog.md
           
-          compare_and_log() {
-             name=$1; old=$2; new=$3
-             if [ "$old" = "0.0.0" ]; then
-               echo "- **$name**: First time added / Añadido por primera vez (v$new)" >> changelog.md
-             elif [ "$old" = "$new" ]; then
-               echo "- **$name**: Up to date / Inactualizable (Maintained in / Mantenido en v$new)" >> changelog.md
-             else
-               echo "- **$name**: Updated from v$old to v$new / Actualizado de v$old a v$new" >> changelog.md
-             fi
-          }
-
-          compare_and_log "MicroG (GmsCore)" "$OLD_MICROG" "$NEW_MICROG"
-          compare_and_log "Aurora Store" "$OLD_AURORA" "$NEW_AURORA"
-          compare_and_log "FakeGApps" "$OLD_FAKEGAPPS" "$NEW_FAKEGAPPS"
-          
+          echo "- **MicroG (GmsCore)**: v$NEW_MICROG" >> changelog.md
+          echo "- **MicroG Companion**: v$NEW_COMPANION" >> changelog.md
+          echo "- **Aurora Store**: v$NEW_AURORA" >> changelog.md
+          echo "- **FakeGApps**: v$NEW_FAKEGAPPS" >> changelog.md
+          echo "" >> changelog.md
           echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
 
-      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar module.props
+      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template
         run: |
+          # 1. Descargar el Template Oficial de Magisk para Evitar Error 2
+          wget -qO magisk_template.zip https://github.com/topjohnwu/magisk-module-template/archive/master.zip
+          unzip -q magisk_template.zip
+          
           for ARCH in 32 64; do
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
+            mkdir -p build-${ARCH}/system/priv-app/Companion
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
             mkdir -p build-${ARCH}/system/app/AuroraStore
             
-            cp -r META-INF module.prop customize.sh uninstall.sh build-${ARCH}/
-            [ -d common ] && cp -r common build-${ARCH}/
+            # Usar el META-INF puro del template oficial de Magisk
+            cp -r magisk-module-template-master/META-INF build-${ARCH}/
             
+            # Copiar nuestros scripts base y props
+            cp module.prop build-${ARCH}/
+            [ -f customize.sh ] && cp customize.sh build-${ARCH}/ || touch build-${ARCH}/customize.sh
+            [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
+            [ -d common ] && cp -r common build-${ARCH}/
+            [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
+            
+            # Copiar APKs
             cp new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/
+            [ -f new_apks/Companion.apk ] && cp new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/
             cp new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/
             cp new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/
-            
-            [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
 
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
@@ -146,26 +144,22 @@ jobs:
               JSON_FILE="update.json"
             fi
             
-            # --- CORRECCIÓN DEL SALTO DE LÍNEA ---
-            # Aseguramos que el archivo termine con un salto de línea limpio
+            # Asegurar salto de línea antes de inyectar updateJson
             sed -i -e '$a\' build-${ARCH}/module.prop
             
-            # Si existe updateJson, lo reemplaza. Si no existe, lo agrega al final.
+            # Inyectar updateJson según la arquitectura
             if grep -q "^updateJson=" build-${ARCH}/module.prop; then
               sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
             else
               echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
             fi
 
-            # --- CORRECCIÓN DEL EXIT CODE 2 (Evitar saltos CRLF de Windows) ---
-            # Convertimos todos los scripts a formato UNIX para que Android no falle
+            # --- CORRECCIÓN FINAL CRLF ---
+            # Convertimos scripts a formato UNIX para que Magisk no se rompa (Exit Code 2)
             find build-${ARCH} -type f \( -name "*.sh" -o -name "*.prop" \) -exec dos2unix {} +
-            
-            # Damos permisos de ejecución explícitos a los scripts necesarios
-            chmod +x build-${ARCH}/customize.sh build-${ARCH}/uninstall.sh build-${ARCH}/META-INF/com/google/android/update-binary || true
           done
 
-          # Extraer librerías .so
+          # Extraer librerías .so (GmsCore)
           unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-32/system/priv-app/GmsCore/lib/arm || true
           unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-64/system/priv-app/GmsCore/lib/arm64 || true
 
