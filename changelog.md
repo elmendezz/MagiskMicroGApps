@@ -1,5 +1,5 @@
 ### Changelog
-- **MicroG (GmsCore)**: Añadido por primera vez (v250932026)
-- **Aurora Store**: Añadido por primera vez (v73)
-- **FakeGApps**: Añadido por primera vez (v13)
+- **MicroG (GmsCore)**: Inactualizable (Mantenido en v250932026)
+- **Aurora Store**: Inactualizable (Mantenido en v73)
+- **FakeGApps**: Inactualizable (Mantenido en v13)
 - **PlayStore / Otros**: Inactualizable (Se mantienen sin cambios)
