@@ -13,88 +13,58 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout del repositorio
+      - name: 📥 Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: ⚙️ Configurar Entorno (aapt, jq, curl)
+      - name: ⚙️ Instalar dependencias
         run: |
           sudo apt-get update
-          sudo apt-get install -y aapt jq curl wget zip unzip
+          sudo apt-get install -y aapt jq curl wget zip unzip dos2unix
 
-      - name: 📦 Descargar APKs más recientes
-        id: download_apks
+      - name: 📦 Descargar APKs (SIN HW)
         run: |
           mkdir -p new_apks
-          
-          # 1. MicroG (GmsCore)
-          echo "Descargando MicroG..."
-          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and endswith(".apk")) | .browser_download_url' | head -n 1)
-          wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
-          
-          # 2. Aurora Store
+
+          echo "Descargando MicroG normal..."
+          MICROG_URL=$(curl -s https://api.github.com/repos/microg/GmsCore/releases/latest | jq -r '
+            .assets[] |
+            select(
+              .name |
+              startswith("com.google.android.gms") and
+              endswith(".apk") and
+              (test("-hw") | not)
+            ) |
+            .browser_download_url
+          ' | head -n 1)
+
+          wget -qO new_apks/GmsCore.apk "$MICROG_URL"
+
           echo "Descargando Aurora Store..."
-          AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
-          UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
-          
-          if [ -n "$UPLOAD_PATH" ]; then
-            AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
-          else
-            AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
-          fi
-          
-          echo "Enlace final de Aurora: $AURORA_URL"
-          wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$AURORA_URL"
+          AURORA_URL=$(curl -s https://gitlab.com/api/v4/projects/6922885/releases \
+            | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' \
+            | head -n 1)
 
-          # 3. Obtener FakeGApps
+          wget -qO new_apks/AuroraStore.apk "$AURORA_URL"
+
           echo "Descargando FakeGApps..."
-          FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
-          FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
-          FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1)
+          FAKEGAPPS_URL=$(curl -s https://api.github.com/repos/whew-inc/FakeGApps/releases/latest \
+            | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' \
+            | head -n 1)
 
-          if [ -z "$FAKEGAPPS_URL" ] || [ "$FAKEGAPPS_URL" == "null" ]; then
-            FAKEGAPPS_VER="6.6"
-            FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
-          fi
-          
-          echo "Versión de FakeGApps detectada: $FAKEGAPPS_VER"
-          echo "Enlace final de FakeGApps: $FAKEGAPPS_URL"
-          curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
+          curl -f -L -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
 
-      - name: 🔍 Obtener versiones y generar Changelog
-        id: versions
+      - name: 🔢 Actualizar versionado
         run: |
-          mkdir -p old_apks
-          
-          LATEST_RELEASE_URL="https://github.com/${{ github.repository }}/releases/latest/download/MicroGiskGApps-64.zip"
-          if curl -sL --fail "$LATEST_RELEASE_URL" -o old.zip; then
-            unzip -q old.zip "system/priv-app/GmsCore/GmsCore.apk" -d old_apks || true
-            unzip -q old.zip "system/app/AuroraStore/AuroraStore.apk" -d old_apks || true
-            unzip -q old.zip "system/priv-app/FakeGApps/FakeGApps.apk" -d old_apks || true
-          fi
-
-          get_version() {
-            if [ -f "$1" ]; then
-              aapt dump badging "$1" | grep versionName | awk -F"'" '{print $4}'
-            else
-              echo "0.0.0"
-            fi
-          }
-
-          NEW_MICROG=$(get_version "new_apks/GmsCore.apk")
-          NEW_AURORA=$(get_version "new_apks/AuroraStore.apk")
-          NEW_FAKEGAPPS=$(get_version "new_apks/FakeGApps.apk")
-          OLD_MICROG=$(get_version "old_apks/system/priv-app/GmsCore/GmsCore.apk")
-          OLD_AURORA=$(get_version "old_apks/system/app/AuroraStore/AuroraStore.apk")
-          OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
-
           sed -i 's/\r$//' module.prop
+          dos2unix module.prop
 
-          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
+          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ')
           NEW_VC=$((OLD_VC + 1))
-          OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
-          NEW_VER=$(echo $OLD_VER | awk -F. '{if(NF==1){print $1".1"}else{$NF = $NF + 1; print $0}}' | sed 's/ /./g')
+
+          OLD_VER=$(grep '^version=' module.prop | cut -d= -f2 | tr -d ' ')
+          NEW_VER="${OLD_VER}.${NEW_VC}"
           FINAL_TAG="A${NEW_VER}-MicroG"
 
           echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
@@ -103,102 +73,84 @@ jobs:
           sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop
           sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop
 
-          # --- GENERACIÓN DE CHANGELOG BILINGÜE ---
-          echo "### Changelog / Registro de cambios" > changelog.md
-          
-          compare_and_log() {
-             name=$1; old=$2; new=$3
-             if [ "$old" = "0.0.0" ]; then
-               echo "- **$name**: First time added / Añadido por primera vez (v$new)" >> changelog.md
-             elif [ "$old" = "$new" ]; then
-               echo "- **$name**: Up to date / Inactualizable (Maintained in / Mantenido en v$new)" >> changelog.md
-             else
-               echo "- **$name**: Updated from v$old to v$new / Actualizado de v$old a v$new" >> changelog.md
-             fi
-          }
-
-          compare_and_log "MicroG (GmsCore)" "$OLD_MICROG" "$NEW_MICROG"
-          compare_and_log "Aurora Store" "$OLD_AURORA" "$NEW_AURORA"
-          compare_and_log "FakeGApps" "$OLD_FAKEGAPPS" "$NEW_FAKEGAPPS"
-          
-          echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
-          
-          cat changelog.md
-
-      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar module.props
+      - name: 🛠️ Construir ZIPs limpios
         run: |
           for ARCH in 32 64; do
-            mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
+            rm -rf build-${ARCH}
+            mkdir -p build-${ARCH}/system/priv-app/GmsCore
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
             mkdir -p build-${ARCH}/system/app/AuroraStore
-            
-            cp -r META-INF module.prop customize.sh uninstall.sh build-${ARCH}/
+
+            cp -r META-INF build-${ARCH}/
+            cp module.prop customize.sh uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
-            
+
             cp new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/
             cp new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/
             cp new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/
-            
-            [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
 
-            # Modificamos el updateJson dentro del module.prop para este ZIP en específico
+            # FIX newline
+            sed -i -e '$a\' build-${ARCH}/module.prop
+
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
             else
               JSON_FILE="update.json"
             fi
-            
-            # Si existe updateJson, lo reemplaza. Si no existe, lo agrega al final del archivo.
-            if grep -q "^updateJson=" build-${ARCH}/module.prop; then
-              sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
+
+            echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
+
+            # Permisos correctos
+            chmod -R 755 build-${ARCH}/META-INF
+            chmod 644 build-${ARCH}/module.prop
+            chmod 755 build-${ARCH}/customize.sh || true
+            chmod 755 build-${ARCH}/uninstall.sh || true
+            [ -d build-${ARCH}/common ] && chmod -R 755 build-${ARCH}/common
+
+            # Extraer libs correctas
+            if [ "$ARCH" == "32" ]; then
+              unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-${ARCH}/system/priv-app/GmsCore/ || true
             else
-              echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
+              unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-${ARCH}/system/priv-app/GmsCore/ || true
             fi
+
+            cd build-${ARCH}
+            zip -r9 ../MicroGiskGApps-${ARCH}.zip .
+            cd ..
           done
 
-          # Extraer librerías .so
-          unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-32/system/priv-app/GmsCore/lib/arm || true
-          unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-64/system/priv-app/GmsCore/lib/arm64 || true
-
-          cd build-32 && zip -r9 ../MicroGiskGApps-32.zip . && cd ..
-          cd build-64 && zip -r9 ../MicroGiskGApps-64.zip . && cd ..
-
-      - name: 📝 Generar update.jsons y Commitear cambios al Repo
+      - name: 📝 Generar update.json
         run: |
-          # Generar para 64 bits
           cat <<EOF > update.json
           {
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
             "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-64.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+            "changelog": "https://github.com/${{ github.repository }}/releases/tag/${{ env.FINAL_TAG }}"
           }
           EOF
 
-          # Generar para 32 bits
           cat <<EOF > update32.json
           {
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
             "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+            "changelog": "https://github.com/${{ github.repository }}/releases/tag/${{ env.FINAL_TAG }}"
           }
           EOF
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Agregamos ambos JSONs al commit
-          git add module.prop update.json update32.json changelog.md
-          git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
+
+          git add module.prop update.json update32.json
+          git commit -m "🚀 ${{ env.FINAL_TAG }}" || echo "Nothing to commit"
           git push
 
-      - name: 🚀 Publicar Release en GitHub
+      - name: 🚀 Publicar Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
-          body_path: changelog.md
+          name: "${{ env.FINAL_TAG }}"
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
