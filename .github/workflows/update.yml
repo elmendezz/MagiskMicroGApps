@@ -1,12 +1,12 @@
 name: Actualizar MagiskMicroGApps
 
 on:
-  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0' # Se ejecuta automáticamente todos los domingos a la medianoche
+    - cron: '0 0 * * 0'
 
 permissions:
-  contents: write # Necesario para hacer commits y publicar releases
+  contents: write
 
 jobs:
   build-and-release:
@@ -47,7 +47,7 @@ jobs:
           echo "Enlace final de Aurora: $AURORA_URL"
           wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$AURORA_URL"
 
-          # 3. Obtener FakeGApps (Desde el repo whew-inc)
+          # 3. Obtener FakeGApps
           echo "Descargando FakeGApps..."
           FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
           FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
@@ -67,7 +67,6 @@ jobs:
         run: |
           mkdir -p old_apks
           
-          # Intentar descargar el zip del último release para comparar
           LATEST_RELEASE_URL="https://github.com/${{ github.repository }}/releases/latest/download/MicroGiskGApps-64.zip"
           if curl -sL --fail "$LATEST_RELEASE_URL" -o old.zip; then
             unzip -q old.zip "system/priv-app/GmsCore/GmsCore.apk" -d old_apks || true
@@ -75,7 +74,6 @@ jobs:
             unzip -q old.zip "system/priv-app/FakeGApps/FakeGApps.apk" -d old_apks || true
           fi
 
-          # Función para obtener la versión de un APK usando aapt
           get_version() {
             if [ -f "$1" ]; then
               aapt dump badging "$1" | grep versionName | awk -F"'" '{print $4}'
@@ -84,7 +82,6 @@ jobs:
             fi
           }
 
-          # Versiones Nuevas y Viejas
           NEW_MICROG=$(get_version "new_apks/GmsCore.apk")
           NEW_AURORA=$(get_version "new_apks/AuroraStore.apk")
           NEW_FAKEGAPPS=$(get_version "new_apks/FakeGApps.apk")
@@ -92,19 +89,23 @@ jobs:
           OLD_AURORA=$(get_version "old_apks/system/app/AuroraStore/AuroraStore.apk")
           OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
 
-          # --- LÓGICA CORREGIDA PARA EL FORMATO A13-MicroG ---
-          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 || echo "1")
+          # --- LÓGICA REFORZADA PARA VERSION Y VERSIONCODE ---
+          # 1. Limpiamos retornos de carro de Windows que rompen todo
+          sed -i 's/\r$//' module.prop
+
+          # 2. Extraemos el versionCode y eliminamos cualquier espacio en blanco
+          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
           
-          # Extraer SOLO los números de la versión (ej. de "A13-MicroG" saca "13")
-          OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
-          
-          # Incrementar versionCode (+1)
+          # 3. Sumamos 1 matemáticamente de forma segura
           NEW_VC=$((OLD_VC + 1))
           
-          # Incrementar versión (+0.1)
+          # 4. Extraer SOLO los números de la versión (ej. de "A13-MicroG" saca "13")
+          OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          
+          # 5. Incrementar versión (+0.1)
           NEW_VER=$(echo $OLD_VER | awk -F. '{if(NF==1){print $1".1"}else{$NF = $NF + 1; print $0}}' | sed 's/ /./g')
           
-          # Construir el nuevo Tag limpio (ej. "A13.1-MicroG")
+          # 6. Construir el nuevo Tag limpio (ej. "A13.1-MicroG")
           FINAL_TAG="A${NEW_VER}-MicroG"
 
           # Exportar para siguientes pasos
@@ -163,7 +164,6 @@ jobs:
 
       - name: 📝 Generar update.json y Commitear cambios al Repo
         run: |
-          # Crear update.json para la actualización OTA de Magisk con el nuevo Tag
           cat <<EOF > update.json
           {
             "version": "${{ env.FINAL_TAG }}",
@@ -177,7 +177,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update.json changelog.md
-          git commit -m "🚀 Update to ${{ env.FINAL_TAG }}" || echo "Nothing to commit"
+          git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
           git push
 
       - name: 🚀 Publicar Release en GitHub
@@ -186,7 +186,7 @@ jobs:
           tag_name: ${{ env.FINAL_TAG }}
           name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
           body_path: changelog.md
-          token: ${{ secrets.GITHUB_TOKEN }} # Añadido para asegurar permisos en la release
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
