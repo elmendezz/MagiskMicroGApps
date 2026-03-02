@@ -53,9 +53,23 @@ jobs:
           echo "Enlace final de Aurora: $AURORA_URL"
           wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$AURORA_URL"
 
-          # 3. FakeGApps
+          # 3. Obtener FakeGApps (Desde el repo whew-inc)
           echo "Descargando FakeGApps..."
-          wget -qO new_apks/FakeGApps.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://github.com/whew-inc/FakeGApps/releases/download/latest/app-release.apk"
+          FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
+          FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
+          FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1)
+
+          # Fallback de seguridad: Si falla la API de GitHub o no hay URL, usamos el enlace exacto que pasaste
+          if [ -z "$FAKEGAPPS_URL" ] || [ "$FAKEGAPPS_URL" == "null" ]; then
+            FAKEGAPPS_VER="6.6"
+            FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
+          fi
+          
+          echo "Versión de FakeGApps detectada: $FAKEGAPPS_VER"
+          echo "Enlace final de FakeGApps: $FAKEGAPPS_URL"
+          
+          # Usamos -f para que curl falle correctamente si hay error 404, -sL para seguir redirecciones
+          curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
 
       - name: 🔍 Obtener versiones y generar Changelog
         id: versions
