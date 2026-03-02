@@ -31,22 +31,16 @@ jobs:
           # 1. MicroG (GmsCore)
           echo "Descargando MicroG..."
           MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and endswith(".apk")) | .browser_download_url' | head -n 1)
-          # Usamos -U para hacernos pasar por un navegador y evitar bloqueos (Exit Code 8)
           wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
           
           # 2. Aurora Store
           echo "Descargando Aurora Store..."
-          # Obtenemos la información de la última release desde la API de GitLab
           AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
-          
-          # Extraemos la ruta del "/uploads/..." directamente de la descripción (cuerpo del texto)
           UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
           
           if [ -n "$UPLOAD_PATH" ]; then
-            # Reconstruimos el enlace con el ID del proyecto exactamente como funciona en GitLab
             AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
           else
-            # Respaldo en caso de que vuelvan a usar la sección de links
             AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
           fi
           
@@ -59,7 +53,6 @@ jobs:
           FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
           FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1)
 
-          # Fallback de seguridad: Si falla la API de GitHub o no hay URL, usamos el enlace exacto que pasaste
           if [ -z "$FAKEGAPPS_URL" ] || [ "$FAKEGAPPS_URL" == "null" ]; then
             FAKEGAPPS_VER="6.6"
             FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
@@ -67,8 +60,6 @@ jobs:
           
           echo "Versión de FakeGApps detectada: $FAKEGAPPS_VER"
           echo "Enlace final de FakeGApps: $FAKEGAPPS_URL"
-          
-          # Usamos -f para que curl falle correctamente si hay error 404, -sL para seguir redirecciones
           curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
 
       - name: 🔍 Obtener versiones y generar Changelog
@@ -93,33 +84,36 @@ jobs:
             fi
           }
 
-          # Versiones Nuevas
+          # Versiones Nuevas y Viejas
           NEW_MICROG=$(get_version "new_apks/GmsCore.apk")
           NEW_AURORA=$(get_version "new_apks/AuroraStore.apk")
           NEW_FAKEGAPPS=$(get_version "new_apks/FakeGApps.apk")
-
-          # Versiones Viejas
           OLD_MICROG=$(get_version "old_apks/system/priv-app/GmsCore/GmsCore.apk")
           OLD_AURORA=$(get_version "old_apks/system/app/AuroraStore/AuroraStore.apk")
           OLD_FAKEGAPPS=$(get_version "old_apks/system/priv-app/FakeGApps/FakeGApps.apk")
 
-          # Preparar module.prop
-          CUR_VCODE=$(grep '^versionCode=' module.prop | cut -d'=' -f2)
-          CUR_VER=$(grep '^version=' module.prop | cut -d'v' -f2)
-          NEW_VCODE=$((CUR_VCODE + 1))
+          # --- LÓGICA CORREGIDA PARA EL FORMATO A13-MicroG ---
+          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 || echo "1")
           
-          MAJOR=$(echo $CUR_VER | cut -d'.' -f1)
-          MINOR=$(echo $CUR_VER | cut -d'.' -f2)
-          NEW_MINOR=$((MINOR + 1))
-          NEW_VER="${MAJOR}.${NEW_MINOR}"
+          # Extraer SOLO los números de la versión (ej. de "A13-MicroG" saca "13")
+          OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          
+          # Incrementar versionCode (+1)
+          NEW_VC=$((OLD_VC + 1))
+          
+          # Incrementar versión (+0.1)
+          NEW_VER=$(echo $OLD_VER | awk -F. '{if(NF==1){print $1".1"}else{$NF = $NF + 1; print $0}}' | sed 's/ /./g')
+          
+          # Construir el nuevo Tag limpio (ej. "A13.1-MicroG")
+          FINAL_TAG="A${NEW_VER}-MicroG"
 
           # Exportar para siguientes pasos
-          echo "NEW_VER=$NEW_VER" >> $GITHUB_ENV
-          echo "NEW_VCODE=$NEW_VCODE" >> $GITHUB_ENV
+          echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
+          echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
 
           # Actualizar module.prop
-          sed -i "s/^versionCode=.*/versionCode=$NEW_VCODE/" module.prop
-          sed -i "s/^version=.*/version=v$NEW_VER/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop
+          sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop
 
           # Escribir Changelog
           echo "### Changelog" > changelog.md
@@ -145,41 +139,36 @@ jobs:
 
       - name: 🛠️ Construir Zips (32-bit y 64-bit)
         run: |
-          # Crear directorios base
           for ARCH in 32 64; do
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
             mkdir -p build-${ARCH}/system/app/AuroraStore
             
-            # Copiar template base del repo al build
             cp -r META-INF module.prop customize.sh uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
             
-            # Copiar APKs descargados
             cp new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/
             cp new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/
             cp new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/
             
-            # Si tienes apps estáticas en tu repo bajo una carpeta "system", cópialas aquí
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
           done
 
-          # Extraer librerías .so de MicroG según arquitectura
+          # Extraer librerías .so
           unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-32/system/priv-app/GmsCore/lib/arm || true
           unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-64/system/priv-app/GmsCore/lib/arm64 || true
 
-          # Comprimir
           cd build-32 && zip -r9 ../MicroGiskGApps-32.zip . && cd ..
           cd build-64 && zip -r9 ../MicroGiskGApps-64.zip . && cd ..
 
       - name: 📝 Generar update.json y Commitear cambios al Repo
         run: |
-          # Crear update.json para la actualización OTA de Magisk
+          # Crear update.json para la actualización OTA de Magisk con el nuevo Tag
           cat <<EOF > update.json
           {
-            "version": "v${{ env.NEW_VER }}",
-            "versionCode": ${{ env.NEW_VCODE }},
-            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/v${{ env.NEW_VER }}/MicroGiskGApps-64.zip",
+            "version": "${{ env.FINAL_TAG }}",
+            "versionCode": ${{ env.NEW_VC }},
+            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-64.zip",
             "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
           }
           EOF
@@ -188,16 +177,16 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update.json changelog.md
-          # Si no hay cambios (raro porque cambiamos la versión), no falla
-          git commit -m "🚀 Update to v${{ env.NEW_VER }}" || echo "Nothing to commit"
+          git commit -m "🚀 Update to ${{ env.FINAL_TAG }}" || echo "Nothing to commit"
           git push
 
       - name: 🚀 Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.NEW_VER }}
-          name: "Ver. ${{ env.NEW_VER }} - ¡New Version Leaked!"
+          tag_name: ${{ env.FINAL_TAG }}
+          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
           body_path: changelog.md
+          token: ${{ secrets.GITHUB_TOKEN }} # Añadido para asegurar permisos en la release
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
