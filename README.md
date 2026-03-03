@@ -2,7 +2,7 @@
 This module is only available for Magisk/Ksu/Apatch do not try in recovery mode, it will not work.
 
 # What is this?
-It is a module that installs the Google Apps of Micrg, thus getting more performance, RAM, etc. 
+It is a module that installs the Google Apps of MicroG, thus getting more performance, RAM, etc. 
 
 # What to use it?
 Because it is essential.
