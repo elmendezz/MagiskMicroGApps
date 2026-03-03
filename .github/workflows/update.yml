@@ -23,28 +23,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aapt jq curl wget zip unzip dos2unix rsync zipalign
 
-      - name: 📦 Descargar APKs más recientes (Incluyendo Backends FOSS)
+      - name: 📦 Descargar APKs más recientes (MicroG, Aurora, GsfProxy y Sync)
         id: download_apks
         run: |
           mkdir -p new_apks
           
-          # 1. MicroG (GmsCore) NORMAL (Excluyendo versiones -hw de Huawei)
+          # 1. MicroG (GmsCore) - ¡DroidGuard ya viene incluido aquí!
           echo "Descargando MicroG..."
           MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
-          wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$MICROG_URL"
+          wget -qO new_apks/GmsCore.apk -U "Mozilla/5.0" "$MICROG_URL"
 
-          # 2. MicroG Companion (Vending / FakeStore) - Corregido para excluir Huawei
+          # 2. MicroG Companion (FakeStore)
           echo "Descargando MicroG Companion..."
           COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
           if [ -n "$COMPANION_URL" ]; then
-            wget -qO new_apks/Companion.apk -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$COMPANION_URL"
+            wget -qO new_apks/Companion.apk -U "Mozilla/5.0" "$COMPANION_URL"
           fi
           
           # 3. Aurora Store
           echo "Descargando Aurora Store..."
           AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
           UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
-          
           if [ -n "$UPLOAD_PATH" ]; then
             AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
           else
@@ -52,39 +51,34 @@ jobs:
           fi
           wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0" "$AURORA_URL"
 
-          # 4. Obtener FakeGApps
+          # 4. Aurora Services (Para instalación silenciosa)
+          echo "Descargando Aurora Services..."
+          AURORA_SERVICES_URL=$(curl -s "https://gitlab.com/api/v4/projects/18524419/releases" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
+          if [ -n "$AURORA_SERVICES_URL" ]; then
+            wget -qO new_apks/AuroraServices.apk -U "Mozilla/5.0" "$AURORA_SERVICES_URL"
+          fi
+
+          # 5. FakeGApps
           echo "Descargando FakeGApps..."
           FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
-          FAKEGAPPS_VER=$(echo "$FAKEGAPPS_JSON" | jq -r .tag_name)
           FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1)
-
           if [ -z "$FAKEGAPPS_URL" ] || [ "$FAKEGAPPS_URL" == "null" ]; then
-            FAKEGAPPS_VER="6.6"
             FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
           fi
           curl -f -sL -o new_apks/FakeGApps.apk "$FAKEGAPPS_URL"
-          
-          # 5. Descargar Mozilla Ichnaea Backend (FOSS Location)
-          echo "Descargando Mozilla Location Backend..."
-          MOZILLA_URL=$(curl -s "https://api.github.com/repos/microg/IchnaeaNlpBackend/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
-          if [ -n "$MOZILLA_URL" ] && [ "$MOZILLA_URL" != "null" ]; then
-            wget -qO new_apks/MozillaBackend.apk "$MOZILLA_URL"
-          fi
 
-          # 6. Descargar Nominatim Geocoder Backend (FOSS Search)
-          echo "Descargando Nominatim Geocoder..."
-          NOMINATIM_URL=$(curl -s "https://api.github.com/repos/microg/NominatimGeocoderBackend/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
-          if [ -n "$NOMINATIM_URL" ] && [ "$NOMINATIM_URL" != "null" ]; then
-            wget -qO new_apks/Nominatim.apk "$NOMINATIM_URL"
-          fi
-
-          # 7. Descargar GsfProxy
+          # 6. GsfProxy
           echo "Descargando GsfProxy..."
           GSFPROXY_URL=$(curl -s "https://api.github.com/repos/microg/GsfProxy/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
           if [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ]; then
             GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
           fi
           wget -qO new_apks/GsfProxy.apk "$GSFPROXY_URL"
+
+          # 7. Google Contacts & Calendar Sync (Repositorios genéricos de GitLab CI para MicroG)
+          echo "Descargando Sync Adapters..."
+          wget -qO new_apks/GoogleContactsSync.apk "https://gitlab.com/api/v4/projects/21443657/packages/generic/syncadapters/10/GoogleContactsSyncAdapter.apk" || true
+          wget -qO new_apks/GoogleCalendarSync.apk "https://gitlab.com/api/v4/projects/21443657/packages/generic/syncadapters/10/GoogleCalendarSyncAdapter.apk" || true
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
@@ -101,20 +95,22 @@ jobs:
         run: |
           get_version_info() {
             if [ -f "$1" ]; then
-              # Extraer VersionName y VersionCode usando aapt y sed
               VNAME=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
               VCODE=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
               echo "${VNAME} (Code: ${VCODE})"
             else
-              echo "0.0.0 (Code: 0)"
+              echo "0.0.0 (Code: 0) / No incluido"
             fi
           }
 
           NEW_MICROG=$(get_version_info "new_apks/GmsCore.apk")
           NEW_COMPANION=$(get_version_info "new_apks/Companion.apk")
           NEW_AURORA=$(get_version_info "new_apks/AuroraStore.apk")
+          NEW_AURORA_SVC=$(get_version_info "new_apks/AuroraServices.apk")
           NEW_FAKEGAPPS=$(get_version_info "new_apks/FakeGApps.apk")
           NEW_GSFPROXY=$(get_version_info "new_apks/GsfProxy.apk")
+          NEW_CONTACTS=$(get_version_info "new_apks/GoogleContactsSync.apk")
+          NEW_CALENDAR=$(get_version_info "new_apks/GoogleCalendarSync.apk")
 
           # Limpiar retornos de carro antes de leer
           [ -f module.prop ] && dos2unix module.prop || touch module.prop
@@ -138,14 +134,19 @@ jobs:
 
           # --- GENERACIÓN DE CHANGELOG BILINGÜE ---
           echo "### Changelog / Registro de cambios" > changelog.md
+          echo "#### Núcleo (Core)" >> changelog.md
           echo "- **MicroG (GmsCore)**: v$NEW_MICROG" >> changelog.md
           echo "- **MicroG Companion**: v$NEW_COMPANION" >> changelog.md
           echo "- **GsfProxy**: v$NEW_GSFPROXY" >> changelog.md
-          echo "- **Aurora Store**: v$NEW_AURORA" >> changelog.md
           echo "- **FakeGApps**: v$NEW_FAKEGAPPS" >> changelog.md
-          echo "- **FOSS Backends**: Included (Mozilla NLP & Nominatim)" >> changelog.md
           echo "" >> changelog.md
-          echo "- **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)" >> changelog.md
+          echo "#### Tienda y Servicios (Store & Services)" >> changelog.md
+          echo "- **Aurora Store**: v$NEW_AURORA" >> changelog.md
+          echo "- **Aurora Services**: v$NEW_AURORA_SVC" >> changelog.md
+          echo "- **Google Contacts Sync**: v$NEW_CONTACTS" >> changelog.md
+          echo "- **Google Calendar Sync**: v$NEW_CALENDAR" >> changelog.md
+          echo "" >> changelog.md
+          echo "- **Backends de Ubicación**: Eliminados (Obsoletos. Usa los nativos de Android/MicroG)" >> changelog.md
           echo "" >> changelog.md
 
       - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template MMT-Extended
@@ -168,10 +169,11 @@ jobs:
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
             mkdir -p build-${ARCH}/system/priv-app/Companion
             mkdir -p build-${ARCH}/system/priv-app/FakeGApps
+            mkdir -p build-${ARCH}/system/priv-app/AuroraServices
             mkdir -p build-${ARCH}/system/app/AuroraStore
-            mkdir -p build-${ARCH}/system/app/MozillaBackend
-            mkdir -p build-${ARCH}/system/app/Nominatim
             mkdir -p build-${ARCH}/system/app/GsfProxy
+            mkdir -p build-${ARCH}/system/app/GoogleContactsSync
+            mkdir -p build-${ARCH}/system/app/GoogleCalendarSync
             
             # 5. Sobrescribir con nuestros archivos locales
             cp module.prop build-${ARCH}/
@@ -184,9 +186,10 @@ jobs:
             [ -f new_apks/Companion.apk ] && cp -f new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/Companion.apk
             cp -f new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/FakeGApps.apk
             cp -f new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/AuroraStore.apk
-            [ -f new_apks/MozillaBackend.apk ] && cp -f new_apks/MozillaBackend.apk build-${ARCH}/system/app/MozillaBackend/MozillaBackend.apk || true
-            [ -f new_apks/Nominatim.apk ] && cp -f new_apks/Nominatim.apk build-${ARCH}/system/app/Nominatim/Nominatim.apk || true
+            [ -f new_apks/AuroraServices.apk ] && cp -f new_apks/AuroraServices.apk build-${ARCH}/system/priv-app/AuroraServices/AuroraServices.apk || true
             [ -f new_apks/GsfProxy.apk ] && cp -f new_apks/GsfProxy.apk build-${ARCH}/system/app/GsfProxy/GsfProxy.apk || true
+            [ -f new_apks/GoogleContactsSync.apk ] && cp -f new_apks/GoogleContactsSync.apk build-${ARCH}/system/app/GoogleContactsSync/GoogleContactsSync.apk || true
+            [ -f new_apks/GoogleCalendarSync.apk ] && cp -f new_apks/GoogleCalendarSync.apk build-${ARCH}/system/app/GoogleCalendarSync/GoogleCalendarSync.apk || true
 
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
