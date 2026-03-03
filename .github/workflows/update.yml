@@ -51,12 +51,9 @@ jobs:
           fi
           wget -qO new_apks/AuroraStore.apk -U "Mozilla/5.0" "$AURORA_URL"
 
-          # 4. Aurora Services (Para instalación silenciosa)
-          echo "Descargando Aurora Services..."
-          AURORA_SERVICES_URL=$(curl -s "https://gitlab.com/api/v4/projects/18524419/releases" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
-          if [ -n "$AURORA_SERVICES_URL" ]; then
-            wget -qO new_apks/AuroraServices.apk -U "Mozilla/5.0" "$AURORA_SERVICES_URL"
-          fi
+          # 4. Aurora Services (Integración estática v1.1.1 proporcionada)
+          echo "Descargando Aurora Services v1.1.1..."
+          wget -qO new_apks/AuroraServices.apk -U "Mozilla/5.0" "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk"
 
           # 5. FakeGApps
           echo "Descargando FakeGApps..."
