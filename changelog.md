@@ -8,5 +8,5 @@
 - **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `ce23ebe537bd4818ee78f977cc70f68d68758858e93860774a6e2b81ec537707`
-- **32-bit:** `d8c9f62d2116d740eb143f4b5579cf32c468e56cfb531d10a06b7288a3da4f45`
+- **64-bit:** `901a2d6a2c01e2bc2dad4c79ee9bd68ce2232c11afdbd10b24acd7855a24cbfa`
+- **32-bit:** `8460ea33d6dd6505de268be3afb29495138cd4bd3284080b12fe84e2f727cd6c`
