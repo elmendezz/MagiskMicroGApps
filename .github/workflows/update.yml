@@ -75,7 +75,7 @@ jobs:
           fi
           wget -qO new_apks/GsfProxy.apk "$GSFPROXY_URL"
 
-          # 7. Google Contacts & Calendar Sync (Repositorios genéricos de GitLab CI para MicroG)
+          # 7. Google Contacts & Calendar Sync
           echo "Descargando Sync Adapters..."
           wget -qO new_apks/GoogleContactsSync.apk "https://gitlab.com/api/v4/projects/21443657/packages/generic/syncadapters/10/GoogleContactsSyncAdapter.apk" || true
           wget -qO new_apks/GoogleCalendarSync.apk "https://gitlab.com/api/v4/projects/21443657/packages/generic/syncadapters/10/GoogleCalendarSyncAdapter.apk" || true
@@ -117,8 +117,17 @@ jobs:
 
           OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
           NEW_VC=$((OLD_VC + 1))
+          
+          # Lógica para subir versión A13.9 a A14.0
           OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
-          NEW_VER=$(echo $OLD_VER | awk -F. '{if(NF==1){print $1".1"}else{$NF = $NF + 1; print $0}}' | sed 's/ /./g')
+          NEW_VER=$(echo "$OLD_VER" | awk -F. '{ 
+            major=$1; 
+            minor=$2; 
+            if(minor=="") minor=0; 
+            minor++; 
+            if(minor>=10) { major++; minor=0; } 
+            print major"."minor 
+          }')
           FINAL_TAG="A${NEW_VER}-MicroG"
 
           echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
@@ -145,8 +154,6 @@ jobs:
           echo "- **Aurora Services**: v$NEW_AURORA_SVC" >> changelog.md
           echo "- **Google Contacts Sync**: v$NEW_CONTACTS" >> changelog.md
           echo "- **Google Calendar Sync**: v$NEW_CALENDAR" >> changelog.md
-          echo "" >> changelog.md
-          echo "- **Backends de Ubicación**: Eliminados (Obsoletos. Usa los nativos de Android/MicroG)" >> changelog.md
           echo "" >> changelog.md
 
       - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template MMT-Extended
@@ -249,7 +256,14 @@ jobs:
           
           git add module.prop update.json update32.json changelog.md
           git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
-          git push
+          
+          # Reintento de Push en caso de error 500 de GitHub
+          for i in 1 2 3; do
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main && break || {
+              echo "⚠️ Fallo en el push de GitHub (Error temporal). Reintentando en 10 segundos... (Intento $i/3)"
+              sleep 10
+            }
+          done
 
       - name: 🚀 Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
