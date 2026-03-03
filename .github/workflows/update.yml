@@ -78,6 +78,14 @@ jobs:
             wget -qO new_apks/Nominatim.apk "$NOMINATIM_URL"
           fi
 
+          # 7. Descargar GsfProxy
+          echo "Descargando GsfProxy..."
+          GSFPROXY_URL=$(curl -s "https://api.github.com/repos/microg/GsfProxy/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
+          if [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ]; then
+            GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
+          fi
+          wget -qO new_apks/GsfProxy.apk "$GSFPROXY_URL"
+
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
           echo "Alineando APKs para mejor rendimiento de RAM..."
@@ -103,6 +111,7 @@ jobs:
           NEW_COMPANION=$(get_version "new_apks/Companion.apk")
           NEW_AURORA=$(get_version "new_apks/AuroraStore.apk")
           NEW_FAKEGAPPS=$(get_version "new_apks/FakeGApps.apk")
+          NEW_GSFPROXY=$(get_version "new_apks/GsfProxy.apk")
 
           # Limpiar retornos de carro antes de leer
           [ -f module.prop ] && dos2unix module.prop || touch module.prop
@@ -128,6 +137,7 @@ jobs:
           echo "### Changelog / Registro de cambios" > changelog.md
           echo "- **MicroG (GmsCore)**: v$NEW_MICROG" >> changelog.md
           echo "- **MicroG Companion**: v$NEW_COMPANION" >> changelog.md
+          echo "- **GsfProxy**: v$NEW_GSFPROXY" >> changelog.md
           echo "- **Aurora Store**: v$NEW_AURORA" >> changelog.md
           echo "- **FakeGApps**: v$NEW_FAKEGAPPS" >> changelog.md
           echo "- **FOSS Backends**: Included (Mozilla NLP & Nominatim)" >> changelog.md
@@ -158,6 +168,7 @@ jobs:
             mkdir -p build-${ARCH}/system/app/AuroraStore
             mkdir -p build-${ARCH}/system/app/MozillaBackend
             mkdir -p build-${ARCH}/system/app/Nominatim
+            mkdir -p build-${ARCH}/system/app/GsfProxy
             
             # 5. Sobrescribir con nuestros archivos locales
             cp module.prop build-${ARCH}/
@@ -172,6 +183,7 @@ jobs:
             cp -f new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/AuroraStore.apk
             [ -f new_apks/MozillaBackend.apk ] && cp -f new_apks/MozillaBackend.apk build-${ARCH}/system/app/MozillaBackend/MozillaBackend.apk || true
             [ -f new_apks/Nominatim.apk ] && cp -f new_apks/Nominatim.apk build-${ARCH}/system/app/Nominatim/Nominatim.apk || true
+            [ -f new_apks/GsfProxy.apk ] && cp -f new_apks/GsfProxy.apk build-${ARCH}/system/app/GsfProxy/GsfProxy.apk || true
 
             if [ "$ARCH" == "32" ]; then
               JSON_FILE="update32.json"
