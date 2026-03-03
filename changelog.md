@@ -1,12 +1,13 @@
 ### Changelog / Registro de cambios
-- **MicroG (GmsCore)**: v250932026
-- **MicroG Companion**: v84022626
-- **Aurora Store**: v73
-- **FakeGApps**: v13
+- **MicroG (GmsCore)**: v0.3.13.250932 (Code: 250932026)
+- **MicroG Companion**: v0.3.13.40226 (Code: 84022626)
+- **GsfProxy**: vv0.1.0 (Code: 8)
+- **Aurora Store**: v4.8.1 (Code: 73)
+- **FakeGApps**: v6.6 (Code: 13)
 - **FOSS Backends**: Included (Mozilla NLP & Nominatim)
 
 - **PlayStore / Others**: Up to date (No changes) / Inactualizable (Se mantienen sin cambios)
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `901a2d6a2c01e2bc2dad4c79ee9bd68ce2232c11afdbd10b24acd7855a24cbfa`
-- **32-bit:** `8460ea33d6dd6505de268be3afb29495138cd4bd3284080b12fe84e2f727cd6c`
+- **64-bit:** `ace56cdb958250e4fe783421c9485cf702cc327004f050d267dedfff24656f3b`
+- **32-bit:** `1a573d46999dffb9983d381774f541e158a35cceceba833b7d3cf93f52e73020`
