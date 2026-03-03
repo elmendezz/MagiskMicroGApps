@@ -148,6 +148,9 @@ jobs:
             rm -rf build-${ARCH}/.git build-${ARCH}/.github build-${ARCH}/README.md build-${ARCH}/.gitignore build-${ARCH}/changelog.md build-${ARCH}/LICENSE build-${ARCH}/update.json build-${ARCH}/install.zip
             find build-${ARCH} -type f -iname "*placeholder*" -delete
             
+            # --- SOLUCIÓN: Eliminar carpeta zygisk ---
+            rm -rf build-${ARCH}/zygisk
+            
             # 4. Crear estructura de carpetas de sistema asegurando que existan
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib
             mkdir -p build-${ARCH}/system/priv-app/Companion
