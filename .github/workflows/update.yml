@@ -99,19 +99,22 @@ jobs:
       - name: 🔍 Obtener versiones y generar Changelog Base
         id: versions
         run: |
-          get_version() {
+          get_version_info() {
             if [ -f "$1" ]; then
-              aapt dump badging "$1" | grep versionName | awk -F"'" '{print $4}'
+              # Extraer VersionName y VersionCode usando aapt y sed
+              VNAME=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+              VCODE=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+              echo "${VNAME} (Code: ${VCODE})"
             else
-              echo "0.0.0 (No encontrado)"
+              echo "0.0.0 (Code: 0)"
             fi
           }
 
-          NEW_MICROG=$(get_version "new_apks/GmsCore.apk")
-          NEW_COMPANION=$(get_version "new_apks/Companion.apk")
-          NEW_AURORA=$(get_version "new_apks/AuroraStore.apk")
-          NEW_FAKEGAPPS=$(get_version "new_apks/FakeGApps.apk")
-          NEW_GSFPROXY=$(get_version "new_apks/GsfProxy.apk")
+          NEW_MICROG=$(get_version_info "new_apks/GmsCore.apk")
+          NEW_COMPANION=$(get_version_info "new_apks/Companion.apk")
+          NEW_AURORA=$(get_version_info "new_apks/AuroraStore.apk")
+          NEW_FAKEGAPPS=$(get_version_info "new_apks/FakeGApps.apk")
+          NEW_GSFPROXY=$(get_version_info "new_apks/GsfProxy.apk")
 
           # Limpiar retornos de carro antes de leer
           [ -f module.prop ] && dos2unix module.prop || touch module.prop
