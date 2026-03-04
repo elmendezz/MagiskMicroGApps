@@ -39,7 +39,8 @@ jobs:
             if [ ! -s "$dest" ]; then
               echo "⚠️ Advertencia: Descarga fallida o archivo de 0 bytes para $name. Se omitirá esta app."
               rm -f "$dest"
-              return 1
+              # Retornamos 0 para decirle a GitHub "Ya manejé el error, continúa con el resto"
+              return 0
             fi
             echo "✅ $name descargado correctamente."
             return 0
@@ -68,7 +69,6 @@ jobs:
           SVC_API=$(curl -s "https://gitlab.com/api/v4/projects/8363046/releases")
           LATEST_SVC_VER=$(echo "$SVC_API" | jq -r '.[0].tag_name' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "$CURRENT_SVC_VER")
           
-          # Compara si la versión remota es mayor a la base
           if [ "$(printf '%s\n' "$CURRENT_SVC_VER" "$LATEST_SVC_VER" | sort -V | tail -n1)" != "$CURRENT_SVC_VER" ]; then
             echo "🚀 Nueva versión de Aurora Services detectada: $LATEST_SVC_VER"
             SVC_URL=$(echo "$SVC_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
@@ -90,8 +90,7 @@ jobs:
           [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ] && GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
           download_apk "GsfProxy" "new_apks/GsfProxy.apk" "$GSFPROXY_URL"
 
-          # 7. Google Contacts & Calendar Sync (Corrección de URL y validación)
-          # Se usan mirrors alternativos robustos de repositorios conocidos si los de GitLab fallan.
+          # 7. Google Contacts & Calendar Sync
           SYNC_BASE_URL="https://github.com/WeAreOpenGApps/x86_64-10.0-api/raw/master/app"
           download_apk "Google Contacts Sync" "new_apks/GoogleContactsSync.apk" "$SYNC_BASE_URL/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
           download_apk "Google Calendar Sync" "new_apks/GoogleCalendarSync.apk" "$SYNC_BASE_URL/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
@@ -256,3 +255,11 @@ jobs:
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
+
+      - name: 🧹 Limpiar Releases y Tags Antiguos (Mantener últimas 30)
+        uses: dev-drprasad/delete-older-releases@v0.3.3
+        with:
+          keep_latest: 30
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
