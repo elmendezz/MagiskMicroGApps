@@ -89,20 +89,31 @@ jobs:
           [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ] && GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
           download_apk "GsfProxy" "new_apks/GsfProxy.apk" "$GSFPROXY_URL"
 
-          # 7. Google Contacts & Calendar Sync (Desde MagiskMicroGApps.zip)
-          echo "📦 Descargando MagiskMicroGApps.zip para extraer Sync Apps..."
-          wget -qO "MagiskMicroGApps.zip" "https://github.com/elmendezz/MagiskMicroGApps/releases/download/V1/MagiskMicroGApps.zip" || echo "⚠️ Error al descargar el zip"
+          # 7. Google Contacts & Calendar Sync (Desde el último release del repo actual)
+          echo "🔍 Buscando MicroGiskGApps-32.zip en el último release de este repositorio..."
+          LATEST_ZIP_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.assets[] | select(.name == "MicroGiskGApps-32.zip") | .browser_download_url')
           
-          echo "📂 Extrayendo Google Contacts Sync..."
-          unzip -j "MagiskMicroGApps.zip" "system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk" -d new_apks/ || true
-          [ -f "new_apks/GoogleContactsSyncAdapter.apk" ] && mv "new_apks/GoogleContactsSyncAdapter.apk" "new_apks/GoogleContactsSync.apk" && echo "✅ Google Contacts Sync extraído correctamente." || echo "⚠️ Error al extraer Contacts Sync."
-          
-          echo "📂 Extrayendo Google Calendar Sync..."
-          unzip -j "MagiskMicroGApps.zip" "system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk" -d new_apks/ || true
-          [ -f "new_apks/GoogleCalendarSyncAdapter.apk" ] && mv "new_apks/GoogleCalendarSyncAdapter.apk" "new_apks/GoogleCalendarSync.apk" && echo "✅ Google Calendar Sync extraído correctamente." || echo "⚠️ Error al extraer Calendar Sync."
-          
-          echo "🧹 Limpiando el zip descargado..."
-          rm -f "MagiskMicroGApps.zip"
+          if [ -n "$LATEST_ZIP_URL" ] && [ "$LATEST_ZIP_URL" != "null" ]; then
+            echo "📦 Descargando zip más reciente para extraer Sync Apps..."
+            wget -qO "latest_base.zip" "$LATEST_ZIP_URL" || echo "⚠️ Error al descargar el zip base"
+            
+            echo "📂 Extrayendo Google Contacts Sync..."
+            unzip -j "latest_base.zip" "system/app/GoogleContactsSync/GoogleContactsSync.apk" -d new_apks/ || \
+            unzip -j "latest_base.zip" "system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk" -d new_apks/ || true
+            [ -f "new_apks/GoogleContactsSyncAdapter.apk" ] && mv "new_apks/GoogleContactsSyncAdapter.apk" "new_apks/GoogleContactsSync.apk"
+            [ -f "new_apks/GoogleContactsSync.apk" ] && echo "✅ Google Contacts Sync extraído correctamente." || echo "⚠️ Error al extraer Contacts Sync."
+            
+            echo "📂 Extrayendo Google Calendar Sync..."
+            unzip -j "latest_base.zip" "system/app/GoogleCalendarSync/GoogleCalendarSync.apk" -d new_apks/ || \
+            unzip -j "latest_base.zip" "system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk" -d new_apks/ || true
+            [ -f "new_apks/GoogleCalendarSyncAdapter.apk" ] && mv "new_apks/GoogleCalendarSyncAdapter.apk" "new_apks/GoogleCalendarSync.apk"
+            [ -f "new_apks/GoogleCalendarSync.apk" ] && echo "✅ Google Calendar Sync extraído correctamente." || echo "⚠️ Error al extraer Calendar Sync."
+            
+            echo "🧹 Limpiando el zip base descargado..."
+            rm -f "latest_base.zip"
+          else
+            echo "⚠️ No se encontró MicroGiskGApps-32.zip en el último release. Asegúrate de tener un release previo."
+          fi
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
