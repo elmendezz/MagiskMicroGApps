@@ -3,7 +3,6 @@ name: Actualizar MagiskMicroGApps
 on:
   workflow_dispatch:
   schedule:
-    # Corre cada 3 días a las 12 AM (UTC)
     - cron: '0 0 */3 * *'
 
 permissions:
@@ -19,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ⚙️ Configurar Entorno (aapt, jq, curl, dos2unix, zipalign)
+      - name: ⚙️ Configurar Entorno
         run: |
           sudo apt-get update
           sudo apt-get install -y aapt jq curl wget zip unzip dos2unix rsync zipalign
@@ -29,20 +28,18 @@ jobs:
         run: |
           mkdir -p new_apks
           
-          # Función para descargar y verificar que el archivo no esté vacío (0 bytes)
           download_apk() {
             local name=$1
             local dest=$2
             local url=$3
             echo "Descargando $name..."
-            wget -qO "$dest" -U "Mozilla/5.0" "$url" || true
+            wget -qO "$dest" -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$url" || true
             if [ ! -s "$dest" ]; then
-              echo "⚠️ Advertencia: Descarga fallida o archivo de 0 bytes para $name. Se omitirá esta app."
+              echo "⚠️ Advertencia: Descarga fallida para $name. Se omitirá."
               rm -f "$dest"
-              # Retornamos 0 para decirle a GitHub "Ya manejé el error, continúa con el resto"
               return 0
             fi
-            echo "✅ $name descargado correctamente."
+            echo "✅ $name descargado."
             return 0
           }
 
@@ -50,7 +47,7 @@ jobs:
           MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
           download_apk "MicroG" "new_apks/GmsCore.apk" "$MICROG_URL"
 
-          # 2. MicroG Companion (FakeStore)
+          # 2. MicroG Companion
           COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
           [ -n "$COMPANION_URL" ] && download_apk "MicroG Companion" "new_apks/Companion.apk" "$COMPANION_URL"
           
@@ -64,18 +61,16 @@ jobs:
           fi
           download_apk "Aurora Store" "new_apks/AuroraStore.apk" "$AURORA_URL"
 
-          # 4. Aurora Services (Descarga Dinámica Inteligente)
-          CURRENT_SVC_VER="1.1.1" # Versión base conocida
+          # 4. Aurora Services
+          CURRENT_SVC_VER="1.1.1"
           SVC_API=$(curl -s "https://gitlab.com/api/v4/projects/8363046/releases")
           LATEST_SVC_VER=$(echo "$SVC_API" | jq -r '.[0].tag_name' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "$CURRENT_SVC_VER")
           
           if [ "$(printf '%s\n' "$CURRENT_SVC_VER" "$LATEST_SVC_VER" | sort -V | tail -n1)" != "$CURRENT_SVC_VER" ]; then
-            echo "🚀 Nueva versión de Aurora Services detectada: $LATEST_SVC_VER"
             SVC_URL=$(echo "$SVC_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
             [ -z "$SVC_URL" ] && SVC_URL="https://gitlab.com/-/project/8363046"$(echo "$SVC_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
             download_apk "Aurora Services" "new_apks/AuroraServices.apk" "$SVC_URL"
           else
-            echo "⏸️ Aurora Services está en la última versión ($CURRENT_SVC_VER). Usando versión base segura..."
             download_apk "Aurora Services (Estático)" "new_apks/AuroraServices.apk" "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk"
           fi
 
@@ -90,14 +85,13 @@ jobs:
           [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ] && GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
           download_apk "GsfProxy" "new_apks/GsfProxy.apk" "$GSFPROXY_URL"
 
-          # 7. Google Contacts & Calendar Sync
-          SYNC_BASE_URL="https://github.com/WeAreOpenGApps/x86_64-10.0-api/raw/master/app"
-          download_apk "Google Contacts Sync" "new_apks/GoogleContactsSync.apk" "$SYNC_BASE_URL/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
-          download_apk "Google Calendar Sync" "new_apks/GoogleCalendarSync.apk" "$SYNC_BASE_URL/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
+          # 7. Google Sync Adapters (Múltiples fuentes por seguridad antibots)
+          SYNC_BASE="https://github.com/WeAreOpenGApps/x86_64-10.0-api/raw/master/app"
+          download_apk "Google Contacts Sync" "new_apks/GoogleContactsSync.apk" "$SYNC_BASE/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
+          download_apk "Google Calendar Sync" "new_apks/GoogleCalendarSync.apk" "$SYNC_BASE/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
-          echo "Alineando APKs para mejor rendimiento de RAM..."
           for apk in new_apks/*.apk; do
             if [ -f "$apk" ]; then
               zipalign -p -v 4 "$apk" "${apk%.apk}-aligned.apk" || true
@@ -110,35 +104,18 @@ jobs:
         run: |
           get_version_info() {
             if [ -f "$1" ]; then
-              VNAME=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
-              VCODE=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
-              echo "${VNAME} (Code: ${VCODE})"
+              echo "$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
             else
-              echo "No incluido / Error de descarga"
+              echo "No incluido"
             fi
           }
-
-          NEW_MICROG=$(get_version_info "new_apks/GmsCore.apk")
-          NEW_COMPANION=$(get_version_info "new_apks/Companion.apk")
-          NEW_AURORA=$(get_version_info "new_apks/AuroraStore.apk")
-          NEW_AURORA_SVC=$(get_version_info "new_apks/AuroraServices.apk")
-          NEW_FAKEGAPPS=$(get_version_info "new_apks/FakeGApps.apk")
-          NEW_GSFPROXY=$(get_version_info "new_apks/GsfProxy.apk")
-          NEW_CONTACTS=$(get_version_info "new_apks/GoogleContactsSync.apk")
-          NEW_CALENDAR=$(get_version_info "new_apks/GoogleCalendarSync.apk")
 
           [ -f module.prop ] && dos2unix module.prop || touch module.prop
 
           OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
           NEW_VC=$((OLD_VC + 1))
-          
           OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
-          NEW_VER=$(echo "$OLD_VER" | awk -F. '{ 
-            major=$1; minor=$2; 
-            if(minor=="") minor=0; minor++; 
-            if(minor>=10) { major++; minor=0; } 
-            print major"."minor 
-          }')
+          NEW_VER=$(echo "$OLD_VER" | awk -F. '{ major=$1; minor=$2; if(minor=="") minor=0; minor++; if(minor>=10) { major++; minor=0; } print major"."minor }')
           FINAL_TAG="A${NEW_VER}-MicroG"
 
           echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
@@ -146,117 +123,111 @@ jobs:
 
           sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop || echo "versionCode=$NEW_VC" >> module.prop
           sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop || echo "version=$FINAL_TAG" >> module.prop
-          sed -i 's/^id=.*/id=MicroGiskGApps/' module.prop || echo "id=MicroGiskGApps" >> module.prop
-          sed -i 's/^name=.*/name=MicroGiskGApps/' module.prop || echo "name=MicroGiskGApps" >> module.prop
 
           echo "### Changelog / Registro de cambios" > changelog.md
-          echo "#### Núcleo (Core)" >> changelog.md
-          echo "- **MicroG (GmsCore)**: v$NEW_MICROG" >> changelog.md
-          echo "- **MicroG Companion**: v$NEW_COMPANION" >> changelog.md
-          echo "- **GsfProxy**: v$NEW_GSFPROXY" >> changelog.md
-          echo "- **FakeGApps**: v$NEW_FAKEGAPPS" >> changelog.md
-          echo "" >> changelog.md
-          echo "#### Tienda y Servicios (Store & Services)" >> changelog.md
-          echo "- **Aurora Store**: v$NEW_AURORA" >> changelog.md
-          echo "- **Aurora Services**: v$NEW_AURORA_SVC" >> changelog.md
-          echo "- **Google Contacts Sync**: v$NEW_CONTACTS" >> changelog.md
-          echo "- **Google Calendar Sync**: v$NEW_CALENDAR" >> changelog.md
-          echo "" >> changelog.md
+          echo "- **MicroG**: v$(get_version_info new_apks/GmsCore.apk)" >> changelog.md
+          echo "- **Contacts Sync**: v$(get_version_info new_apks/GoogleContactsSync.apk)" >> changelog.md
+          echo "- **Calendar Sync**: v$(get_version_info new_apks/GoogleCalendarSync.apk)" >> changelog.md
 
-      - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template
+      - name: 🛠️ Construir Zips y Crear Archivos de Permisos
         run: |
           git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
           
           for ARCH in 32 64; do
             rsync -a mmt_template/ build-${ARCH}/
-            rm -rf build-${ARCH}/.git build-${ARCH}/.github build-${ARCH}/README.md build-${ARCH}/.gitignore build-${ARCH}/changelog.md build-${ARCH}/LICENSE build-${ARCH}/update.json build-${ARCH}/install.zip build-${ARCH}/zygisk
+            rm -rf build-${ARCH}/.git build-${ARCH}/.github build-${ARCH}/README.md build-${ARCH}/zygisk
             find build-${ARCH} -type f -iname "*placeholder*" -delete
             
+            # Crear directorios de apps
             mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib build-${ARCH}/system/priv-app/Companion build-${ARCH}/system/priv-app/FakeGApps build-${ARCH}/system/priv-app/AuroraServices build-${ARCH}/system/app/AuroraStore build-${ARCH}/system/app/GsfProxy build-${ARCH}/system/app/GoogleContactsSync build-${ARCH}/system/app/GoogleCalendarSync
             
-            cp module.prop build-${ARCH}/
-            [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
-            [ -d common ] && cp -r common build-${ARCH}/
-            [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
+            # Crear directorio de permisos
+            mkdir -p build-${ARCH}/system/etc/default-permissions
             
+            # --- INYECCIÓN DE PERMISOS PARA MICROG ---
+            cat <<EOF > build-${ARCH}/system/etc/default-permissions/microg-permissions.xml
+            <?xml version="1.0" encoding="utf-8"?>
+            <exceptions>
+                <exception package="com.google.android.gms">
+                    <permission name="android.permission.ACCESS_FINE_LOCATION" fixed="false"/>
+                    <permission name="android.permission.ACCESS_COARSE_LOCATION" fixed="false"/>
+                    <permission name="android.permission.ACCESS_BACKGROUND_LOCATION" fixed="false"/>
+                    <permission name="android.permission.READ_CONTACTS" fixed="false"/>
+                    <permission name="android.permission.WRITE_CONTACTS" fixed="false"/>
+                    <permission name="android.permission.READ_PHONE_STATE" fixed="false"/>
+                    <permission name="android.permission.CAMERA" fixed="false"/>
+                    <permission name="android.permission.GET_ACCOUNTS" fixed="false"/>
+                </exception>
+            </exceptions>
+          EOF
+
+            # --- INYECCIÓN DE PERMISOS PARA SYNC ADAPTERS ---
+            cat <<EOF > build-${ARCH}/system/etc/default-permissions/sync-permissions.xml
+            <?xml version="1.0" encoding="utf-8"?>
+            <exceptions>
+                <exception package="com.google.android.syncadapters.contacts">
+                    <permission name="android.permission.READ_CONTACTS" fixed="false"/>
+                    <permission name="android.permission.WRITE_CONTACTS" fixed="false"/>
+                    <permission name="android.permission.GET_ACCOUNTS" fixed="false"/>
+                </exception>
+                <exception package="com.google.android.syncadapters.calendar">
+                    <permission name="android.permission.READ_CALENDAR" fixed="false"/>
+                    <permission name="android.permission.WRITE_CALENDAR" fixed="false"/>
+                    <permission name="android.permission.GET_ACCOUNTS" fixed="false"/>
+                    <permission name="android.permission.READ_CONTACTS" fixed="false"/>
+                </exception>
+            </exceptions>
+          EOF
+            
+            cp module.prop build-${ARCH}/
+            [ -d common ] && cp -r common build-${ARCH}/
+            
+            # Copiar APKs
             [ -f new_apks/GmsCore.apk ] && cp -f new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/GmsCore.apk
-            [ -f new_apks/Companion.apk ] && cp -f new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/Companion.apk
-            [ -f new_apks/FakeGApps.apk ] && cp -f new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/FakeGApps.apk
-            [ -f new_apks/AuroraStore.apk ] && cp -f new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/AuroraStore.apk
-            [ -f new_apks/AuroraServices.apk ] && cp -f new_apks/AuroraServices.apk build-${ARCH}/system/priv-app/AuroraServices/AuroraServices.apk
-            [ -f new_apks/GsfProxy.apk ] && cp -f new_apks/GsfProxy.apk build-${ARCH}/system/app/GsfProxy/GsfProxy.apk
             [ -f new_apks/GoogleContactsSync.apk ] && cp -f new_apks/GoogleContactsSync.apk build-${ARCH}/system/app/GoogleContactsSync/GoogleContactsSync.apk
             [ -f new_apks/GoogleCalendarSync.apk ] && cp -f new_apks/GoogleCalendarSync.apk build-${ARCH}/system/app/GoogleCalendarSync/GoogleCalendarSync.apk
+            [ -f new_apks/FakeGApps.apk ] && cp -f new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/FakeGApps.apk
+            [ -f new_apks/Companion.apk ] && cp -f new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/Companion.apk
+            [ -f new_apks/AuroraStore.apk ] && cp -f new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/AuroraStore.apk
 
             JSON_FILE=$([ "$ARCH" == "32" ] && echo "update32.json" || echo "update.json")
             sed -i -e '$a\' build-${ARCH}/module.prop
-            
-            if grep -q "^updateJson=" build-${ARCH}/module.prop; then
-              sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
-            else
-              echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
-            fi
+            echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
 
             find build-${ARCH} -type f \( -name "*.sh" -o -name "*.prop" \) -exec dos2unix {} +
           done
 
-          [ -f new_apks/GmsCore.apk ] && unzip -j new_apks/GmsCore.apk "lib/armeabi-v7a/*.so" -d build-32/system/priv-app/GmsCore/lib/arm || true
-          [ -f new_apks/GmsCore.apk ] && unzip -j new_apks/GmsCore.apk "lib/arm64-v8a/*.so" -d build-64/system/priv-app/GmsCore/lib/arm64 || true
-
           cd build-32 && zip -r9 ../MicroGiskGApps-32.zip . && cd ..
           cd build-64 && zip -r9 ../MicroGiskGApps-64.zip . && cd ..
 
-      - name: 🔒 Generar Hashes de Seguridad y anexar al Changelog
-        run: |
-          echo "### 🔒 Checksums (SHA256)" >> changelog.md
-          echo "- **64-bit:** \`$(sha256sum MicroGiskGApps-64.zip | awk '{print $1}')\`" >> changelog.md
-          echo "- **32-bit:** \`$(sha256sum MicroGiskGApps-32.zip | awk '{print $1}')\`" >> changelog.md
-
-      - name: 📝 Generar update.jsons y Commitear cambios al Repo
+      - name: 📝 Generar update.jsons y Commitear cambios
         run: |
           cat <<EOF > update.json
-          {
-            "version": "${{ env.FINAL_TAG }}",
-            "versionCode": ${{ env.NEW_VC }},
-            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-64.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
-          }
+          { "version": "${{ env.FINAL_TAG }}", "versionCode": ${{ env.NEW_VC }}, "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-64.zip", "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md" }
           EOF
-
+          
           cat <<EOF > update32.json
-          {
-            "version": "${{ env.FINAL_TAG }}",
-            "versionCode": ${{ env.NEW_VC }},
-            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
-          }
+          { "version": "${{ env.FINAL_TAG }}", "versionCode": ${{ env.NEW_VC }}, "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip", "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md" }
           EOF
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
           git add module.prop update.json update32.json changelog.md
-          git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
-          
-          for i in 1 2 3; do
-            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main && break || {
-              echo "⚠️ Fallo en el push de GitHub. Reintentando en 10 segundos... (Intento $i/3)"
-              sleep 10
-            }
-          done
+          git commit -m "🚀 Update to ${{ env.FINAL_TAG }}" || true
+          git push origin HEAD:main || true
 
       - name: 🚀 Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
+          name: "${{ env.FINAL_TAG }} - ¡New Version!"
           body_path: changelog.md
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
 
-      - name: 🧹 Limpiar Releases y Tags Antiguos (Mantener últimas 30)
+      - name: 🧹 Limpiar Releases (Mantener últimas 30)
         uses: dev-drprasad/delete-older-releases@v0.3.3
         with:
           keep_latest: 30
