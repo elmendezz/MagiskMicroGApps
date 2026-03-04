@@ -1,6 +1,1 @@
-{
-  "version": "A14.1-MicroG",
-  "versionCode": 11,
-  "zipUrl": "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A14.1-MicroG/MicroGiskGApps-64.zip",
-  "changelog": "https://raw.githubusercontent.com/elmendezz/MagiskMicroGApps/main/changelog.md"
-}
+{ "version": "A14.2-MicroG", "versionCode": 12, "zipUrl": "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A14.2-MicroG/MicroGiskGApps-64.zip", "changelog": "https://raw.githubusercontent.com/elmendezz/MagiskMicroGApps/main/changelog.md" }
