@@ -39,7 +39,6 @@ jobs:
             if [ ! -s "$dest" ]; then
               echo "⚠️ Advertencia: Descarga fallida o archivo de 0 bytes para $name. Se omitirá esta app."
               rm -f "$dest"
-              # Retornamos 0 para decirle a GitHub "Ya manejé el error, continúa con el resto"
               return 0
             fi
             echo "✅ $name descargado correctamente."
@@ -65,7 +64,7 @@ jobs:
           download_apk "Aurora Store" "new_apks/AuroraStore.apk" "$AURORA_URL"
 
           # 4. Aurora Services (Descarga Dinámica Inteligente)
-          CURRENT_SVC_VER="1.1.1" # Versión base conocida
+          CURRENT_SVC_VER="1.1.1"
           SVC_API=$(curl -s "https://gitlab.com/api/v4/projects/8363046/releases")
           LATEST_SVC_VER=$(echo "$SVC_API" | jq -r '.[0].tag_name' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "$CURRENT_SVC_VER")
           
@@ -163,6 +162,64 @@ jobs:
           echo "- **Google Calendar Sync**: v$NEW_CALENDAR" >> changelog.md
           echo "" >> changelog.md
 
+      - name: 🔐 Generar Archivos de Permisos Totales (XML)
+        run: |
+          mkdir -p new_permissions
+          
+          # 1. Permisos Privilegiados (Para instalación, Play Store Spoofing, etc)
+          cat <<EOF > new_permissions/privapp-permissions-microg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <permissions>
+              <privapp-permissions package="com.google.android.gms">
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+                  <permission name="android.permission.UPDATE_APP_OPS_STATS"/>
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.SUBSTITUTE_SHARE_TARGET_APP"/>
+                  <permission name="android.permission.ALLOCATE_AGGRESSIVE"/>
+                  <permission name="android.permission.REBOOT"/>
+                  <permission name="android.permission.MODIFY_PHONE_STATE"/>
+              </privapp-permissions>
+
+              <privapp-permissions package="com.android.vending">
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.BATTERY_STATS"/>
+                  <permission name="android.permission.UPDATE_DEVICE_STATS"/>
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+                  <permission name="android.permission.PACKAGE_USAGE_STATS"/>
+                  <permission name="android.permission.GET_APP_OPS_STATS"/>
+              </privapp-permissions>
+
+              <privapp-permissions package="com.aurora.store">
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+                  <permission name="android.permission.BATTERY_STATS"/>
+              </privapp-permissions>
+
+              <privapp-permissions package="com.aurora.services">
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+              </privapp-permissions>
+          </permissions>
+          EOF
+
+          # 2. Configuración del Sistema (Exenciones de Batería y Ubicación en 2do Plano)
+          cat <<EOF > new_permissions/sysconfig-microg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <config>
+              <allow-in-power-save package="com.google.android.gms"/>
+              <allow-in-power-save package="com.android.vending"/>
+              <allow-in-power-save package="com.aurora.store"/>
+              <allow-in-power-save package="com.aurora.services"/>
+              <allow-in-data-usage-save package="com.google.android.gms"/>
+              <allow-unthrottled-location package="com.google.android.gms"/>
+              <allow-ignore-location-settings package="com.google.android.gms"/>
+          </config>
+          EOF
+
       - name: 🛠️ Construir Zips (32-bit y 64-bit) e Inyectar Template
         run: |
           git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
@@ -172,21 +229,27 @@ jobs:
             rm -rf build-${ARCH}/.git build-${ARCH}/.github build-${ARCH}/README.md build-${ARCH}/.gitignore build-${ARCH}/changelog.md build-${ARCH}/LICENSE build-${ARCH}/update.json build-${ARCH}/install.zip build-${ARCH}/zygisk
             find build-${ARCH} -type f -iname "*placeholder*" -delete
             
-            mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib build-${ARCH}/system/priv-app/Companion build-${ARCH}/system/priv-app/FakeGApps build-${ARCH}/system/priv-app/AuroraServices build-${ARCH}/system/app/AuroraStore build-${ARCH}/system/app/GsfProxy build-${ARCH}/system/app/GoogleContactsSync build-${ARCH}/system/app/GoogleCalendarSync
+            # ATENCIÓN AQUÍ: Movimos AuroraStore a priv-app para que los permisos surtan efecto
+            mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib build-${ARCH}/system/priv-app/Companion build-${ARCH}/system/priv-app/FakeGApps build-${ARCH}/system/priv-app/AuroraServices build-${ARCH}/system/priv-app/AuroraStore build-${ARCH}/system/app/GsfProxy build-${ARCH}/system/app/GoogleContactsSync build-${ARCH}/system/app/GoogleCalendarSync build-${ARCH}/system/etc/permissions build-${ARCH}/system/etc/sysconfig
             
             cp module.prop build-${ARCH}/
             [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
             
+            # Copiando APKs
             [ -f new_apks/GmsCore.apk ] && cp -f new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/GmsCore.apk
             [ -f new_apks/Companion.apk ] && cp -f new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/Companion.apk
             [ -f new_apks/FakeGApps.apk ] && cp -f new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/FakeGApps.apk
-            [ -f new_apks/AuroraStore.apk ] && cp -f new_apks/AuroraStore.apk build-${ARCH}/system/app/AuroraStore/AuroraStore.apk
+            [ -f new_apks/AuroraStore.apk ] && cp -f new_apks/AuroraStore.apk build-${ARCH}/system/priv-app/AuroraStore/AuroraStore.apk
             [ -f new_apks/AuroraServices.apk ] && cp -f new_apks/AuroraServices.apk build-${ARCH}/system/priv-app/AuroraServices/AuroraServices.apk
             [ -f new_apks/GsfProxy.apk ] && cp -f new_apks/GsfProxy.apk build-${ARCH}/system/app/GsfProxy/GsfProxy.apk
             [ -f new_apks/GoogleContactsSync.apk ] && cp -f new_apks/GoogleContactsSync.apk build-${ARCH}/system/app/GoogleContactsSync/GoogleContactsSync.apk
             [ -f new_apks/GoogleCalendarSync.apk ] && cp -f new_apks/GoogleCalendarSync.apk build-${ARCH}/system/app/GoogleCalendarSync/GoogleCalendarSync.apk
+
+            # Inyectando XMLs de Permisos
+            cp new_permissions/privapp-permissions-microg.xml build-${ARCH}/system/etc/permissions/
+            cp new_permissions/sysconfig-microg.xml build-${ARCH}/system/etc/sysconfig/
 
             JSON_FILE=$([ "$ARCH" == "32" ] && echo "update32.json" || echo "update.json")
             sed -i -e '$a\' build-${ARCH}/module.prop
