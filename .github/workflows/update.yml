@@ -89,10 +89,20 @@ jobs:
           [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ] && GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
           download_apk "GsfProxy" "new_apks/GsfProxy.apk" "$GSFPROXY_URL"
 
-          # 7. Google Contacts & Calendar Sync
-          SYNC_BASE_URL="https://github.com/WeAreOpenGApps/x86_64-10.0-api/raw/master/app"
-          download_apk "Google Contacts Sync" "new_apks/GoogleContactsSync.apk" "$SYNC_BASE_URL/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
-          download_apk "Google Calendar Sync" "new_apks/GoogleCalendarSync.apk" "$SYNC_BASE_URL/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
+          # 7. Google Contacts & Calendar Sync (Desde MagiskMicroGApps.zip)
+          echo "📦 Descargando MagiskMicroGApps.zip para extraer Sync Apps..."
+          wget -qO "MagiskMicroGApps.zip" "https://github.com/elmendezz/MagiskMicroGApps/releases/download/V1/MagiskMicroGApps.zip" || echo "⚠️ Error al descargar el zip"
+          
+          echo "📂 Extrayendo Google Contacts Sync..."
+          unzip -j "MagiskMicroGApps.zip" "system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk" -d new_apks/ || true
+          [ -f "new_apks/GoogleContactsSyncAdapter.apk" ] && mv "new_apks/GoogleContactsSyncAdapter.apk" "new_apks/GoogleContactsSync.apk" && echo "✅ Google Contacts Sync extraído correctamente." || echo "⚠️ Error al extraer Contacts Sync."
+          
+          echo "📂 Extrayendo Google Calendar Sync..."
+          unzip -j "MagiskMicroGApps.zip" "system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk" -d new_apks/ || true
+          [ -f "new_apks/GoogleCalendarSyncAdapter.apk" ] && mv "new_apks/GoogleCalendarSyncAdapter.apk" "new_apks/GoogleCalendarSync.apk" && echo "✅ Google Calendar Sync extraído correctamente." || echo "⚠️ Error al extraer Calendar Sync."
+          
+          echo "🧹 Limpiando el zip descargado..."
+          rm -f "MagiskMicroGApps.zip"
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
