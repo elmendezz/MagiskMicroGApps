@@ -1,4 +1,4 @@
-name: Actualizar MagiskMicroGApps (Windows Host)
+name: Actualizar MagiskMicroGApps (Windows CMD)
 
 on:
   workflow_dispatch:
@@ -10,158 +10,111 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: self-hosted # Cambiado para tu máquina Windows
+    runs-on: self-hosted
+    # Forzamos el uso de CMD para todo el job
     defaults:
       run:
-        shell: bash # Esto usará el bash de MSYS2/Git Bash configurado
+        shell: cmd
 
     steps:
-      - name: 📥 Checkout del repositorio
+      - name: 📥 Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: ⚙️ Configurar Entorno MSYS2 (Auto-instalar dependencias)
+      - name: 📦 Descargar y Verificar APKs (Sin Bash)
         run: |
-          echo "Verificando dependencias en el entorno Windows/MSYS2..."
-          # Lista de paquetes necesarios en MSYS2
-          DEPENDENCIES=(jq curl wget zip unzip rsync procps-ng)
+          if not exist new_apks mkdir new_apks
           
-          for pkg in "${DEPENDENCIES[@]}"; do
-            if ! pacman -Qs $pkg > /dev/null; then
-              echo "Installing $pkg..."
-              pacman -S --noconfirm --needed $pkg
-            fi
-          done
+          :: --- 1. Descargar MicroG GmsCore ---
+          :: Usamos PowerShell internamente desde CMD para obtener la URL y descargar
+          powershell -Command "$url = (Invoke-RestMethod 'https://api.github.com/repos/microg/GmsCore/releases/latest').assets | Where-Object { $_.name -like 'com.google.android.gms*' -and $_.name -notlike '*-hw*' } | Select-Object -ExpandProperty browser_download_url -First 1; Invoke-WebRequest -Uri $url -OutFile 'new_apks\GmsCore.apk' -UserAgent 'Mozilla/5.0'"
+          
+          :: --- 2. Descargar Aurora Store ---
+          powershell -Command "$url = (Invoke-RestMethod 'https://gitlab.com/api/v4/projects/6922885/releases')[0].assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1; Invoke-WebRequest -Uri $url -OutFile 'new_apks\AuroraStore.apk' -UserAgent 'Mozilla/5.0'"
 
-          # Nota: 'aapt' y 'zipalign' no suelen estar en pacman. 
-          # Se asume que están en el PATH (Android SDK) o debes proveer el binario .exe
-          if ! command -v aapt &> /dev/null; then
-            echo "❌ ERROR: 'aapt' no encontrado. Por favor instálalo o añádelo al PATH de Windows."
-            exit 1
-          fi
+          :: --- VERIFICACIÓN DE SEGURIDAD ---
+          :: Comprobar si los archivos existen y no son de 0 bytes
+          for %%i in (new_apks\GmsCore.apk new_apks\AuroraStore.apk) do (
+              if not exist "%%i" (
+                  echo ❌ ERROR: %%i no se descargo.
+                  exit /b 1
+              )
+              if %%~zi LSS 1024 (
+                  echo ❌ ERROR: %%i esta corrupto o pesa 0 bytes.
+                  del "%%i"
+                  exit /b 1
+              )
+          )
+          echo ✅ APKs verificadas correctamente.
 
-      - name: 📦 Descargar APKs y Validar
-        id: download_apks
+      - name: 🏷️ Calcular Version y Tag
+        id: vars
         run: |
-          mkdir -p new_apks
+          :: Leer versionCode actual de module.prop
+          set "VC="
+          for /f "tokens=2 delims==" %%a in ('findstr "versionCode=" module.prop') do set VC=%%a
+          set /a NEW_VC=%VC% + 1
           
-          download_apk() {
-            local name=$1
-            local dest=$2
-            local url=$3
-            echo "Descargando $name..."
-            
-            if [ -z "$url" ] || [ "$url" == "null" ]; then
-                echo "⚠️ Error: URL nula para $name"
-                return 1
-            fi
-
-            wget -qO "$dest" -U "Mozilla/5.0" "$url" || true
-            
-            if [ ! -s "$dest" ]; then
-              echo "⚠️ Advertencia: Descarga fallida o archivo de 0 bytes para $name."
-              rm -f "$dest"
-              return 1
-            fi
-            echo "✅ $name descargado correctamente ($(du -h "$dest" | cut -f1))."
-            return 0
-          }
-
-          # 1. MicroG (GmsCore)
-          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
-          download_apk "MicroG" "new_apks/GmsCore.apk" "$MICROG_URL"
-
-          # 2. MicroG Companion
-          COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
-          download_apk "MicroG Companion" "new_apks/Companion.apk" "$COMPANION_URL"
+          :: Generar Tag basado en fecha y VC para evitar repetidos
+          for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value') do set dt=%%a
+          set "YEAR=%dt:~2,2%"
+          set "MONTH=%dt:~4,2%"
+          set "FINAL_TAG=A%YEAR%.%MONTH%.%NEW_VC%-MicroG"
           
-          # 3. Aurora Store (GitLab API)
-          AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
-          UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
-          [ -n "$UPLOAD_PATH" ] && AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}" || AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
-          download_apk "Aurora Store" "new_apks/AuroraStore.apk" "$AURORA_URL"
+          :: Guardar para pasos siguientes
+          echo NEW_VC=%NEW_VC%>> %GITHUB_ENV%
+          echo FINAL_TAG=%FINAL_TAG%>> %GITHUB_ENV%
+          
+          :: Actualizar module.prop directamente en CMD
+          powershell -Command "(Get-Content module.prop) -replace 'versionCode=.*', 'versionCode=%NEW_VC%' -replace 'version=.*', 'version=%FINAL_TAG%' | Set-Content module.prop"
+          
+          echo ✅ Nueva Version: %FINAL_TAG% (VC: %NEW_VC%)
 
-          # 4. Aurora Services
-          SVC_API=$(curl -s "https://gitlab.com/api/v4/projects/8363046/releases")
-          SVC_URL=$(echo "$SVC_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
-          download_apk "Aurora Services" "new_apks/AuroraServices.apk" "$SVC_URL" || \
-          download_apk "Aurora Services (Backup)" "new_apks/AuroraServices.apk" "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk"
-
-          # 5. FakeGApps y GsfProxy (GitHub)
-          download_apk "FakeGApps" "new_apks/FakeGApps.apk" "$(curl -s "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest" | jq -r '.assets[0].browser_download_url')"
-          download_apk "GsfProxy" "new_apks/GsfProxy.apk" "$(curl -s "https://api.github.com/repos/microg/GsfProxy/releases/latest" | jq -r '.assets[0].browser_download_url')"
-
-          # 6. Extracción de Sync Apps desde el último Release local
-          echo "🔍 Extrayendo Sync Apps del release anterior..."
-          LATEST_ZIP_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.assets[] | select(.name == "MicroGiskGApps-64.zip") | .browser_download_url')
-          if [ -n "$LATEST_ZIP_URL" ] && [ "$LATEST_ZIP_URL" != "null" ]; then
-            wget -qO "base.zip" "$LATEST_ZIP_URL"
-            unzip -j "base.zip" "*GoogleContactsSync.apk" -d new_apks/ || true
-            unzip -j "base.zip" "*GoogleCalendarSync.apk" -d new_apks/ || true
-            rm -f "base.zip"
-          fi
-
-      - name: 🚀 Optimizar APKs (Zipalign)
+      - name: 🚀 Optimizar (Zipalign)
         run: |
-          for apk in new_apks/*.apk; do
-            if [ -f "$apk" ]; then
-              zipalign -p -f -v 4 "$apk" "${apk%.apk}-aligned.apk" && mv "${apk%.apk}-aligned.apk" "$apk"
-            fi
-          done
+          :: Se asume que zipalign esta en el PATH de Windows
+          for %%f in (new_apks\*.apk) do (
+              zipalign -p -f -v 4 "%%f" "%%~dpnf-aligned.apk"
+              move /y "%%~dpnf-aligned.apk" "%%f"
+          )
 
-      - name: 🔍 Versiones y module.prop
+      - name: 🛠️ Construir Zips (Zip Nativo)
         run: |
-          # Función para obtener versión en Windows usando aapt
-          get_ver() { aapt dump badging "$1" 2>/dev/null | grep "package:" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p"; }
-          
-          NEW_VC=$(($(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d '\r' || echo 0) + 1))
-          FINAL_TAG="A$(date +'%y.%m')-MicroG"
-          
-          echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
-          echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
-
-          # Actualizar archivo module.prop (asegurando formato Unix)
-          sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop
-          sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop
-
-      - name: 🛠️ Construir Estructura de MMT-Extended
-        run: |
-          [ -d mmt_template ] && rm -rf mmt_template
+          if exist mmt_template rmdir /s /q mmt_template
           git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
           
-          build_zip() {
-            local arch=$1
-            local folder="build-$arch"
-            mkdir -p "$folder"
-            rsync -a mmt_template/ "$folder/"
-            # Limpieza y creación de carpetas
-            mkdir -p "$folder/system/priv-app/GmsCore" "$folder/system/priv-app/AuroraStore" "$folder/system/etc/permissions"
-            
-            cp new_apks/GmsCore.apk "$folder/system/priv-app/GmsCore/"
-            cp new_apks/AuroraStore.apk "$folder/system/priv-app/AuroraStore/"
-            cp module.prop "$folder/"
-            
-            # Inyectar permisos XML generados previamente (puedes añadir el paso cat <<EOF del original aquí)
-            
-            cd "$folder" && zip -r9 "../MicroGiskGApps-$arch.zip" . && cd ..
-          }
-
-          build_zip "64"
-          build_zip "32"
-
-      - name: 📝 Commitear y Publicar
-        run: |
-          git config --global user.name "Actions Bot"
-          git config --global user.email "bot@github.com"
-          git add module.prop
-          git commit -m "Update $FINAL_TAG" || echo "No changes"
-          git push origin main
+          :: --- Build 64-bit ---
+          mkdir build64\system\priv-app\GmsCore
+          mkdir build64\system\priv-app\AuroraStore
+          xcopy /s /e /y mmt_template\* build64\
+          copy /y module.prop build64\
+          copy /y new_apks\GmsCore.apk build64\system\priv-app\GmsCore\
+          copy /y new_apks\AuroraStore.apk build64\system\priv-app\AuroraStore\
           
-      - name: 🚀 Release
+          :: Crear el ZIP usando PowerShell (nativo en Windows)
+          powershell -Command "Compress-Archive -Path 'build64\*' -DestinationPath 'MicroGiskGApps-64.zip' -Force"
+
+          :: --- Build 32-bit ---
+          mkdir build32\system\priv-app\GmsCore
+          xcopy /s /e /y mmt_template\* build32\
+          copy /y module.prop build32\
+          copy /y new_apks\GmsCore.apk build32\system\priv-app\GmsCore\
+          powershell -Command "Compress-Archive -Path 'build32\*' -DestinationPath 'MicroGiskGApps-32.zip' -Force"
+
+      - name: 📝 Git Commit
+        run: |
+          git config user.name "Actions Bot"
+          git config user.email "bot@github.com"
+          git add module.prop
+          git commit -m "🚀 Update to %FINAL_TAG%"
+          git push origin main
+
+      - name: 🚀 Publicar Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
+          name: "¡New Version! - ${{ env.FINAL_TAG }}"
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
