@@ -12,5 +12,5 @@
 - **Google Calendar Sync**: v2021.41.2-406147485-release (Code: 2017039780)
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `0a331094b02528c0528dec61f3807a05c89bddf71a476f222f49a41fed4c56c7`
-- **32-bit:** `fbb3eedd56a14cdc192bf353a8260f86f06177a646d62213e5589394fb87ddbc`
+- **64-bit:** `7b70d7fa9a7e32d9e715cfaa46ada7e797e9b4f0e8fbb4a9ff1c8b8fcadac551`
+- **32-bit:** `dda4452c1f1d1b663eea27ef98e28d180e7f8b846b98b00efb8fe6f8587c565a`
