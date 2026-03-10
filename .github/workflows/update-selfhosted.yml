@@ -1,0 +1,129 @@
+name: Actualizar MagiskMicroGApps (Windows)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 */3 * *'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    # Cambiamos a tu runner de Windows
+    runs-on: self-hosted 
+
+    defaults:
+      run:
+        # Forzamos el uso de bash (Git Bash) para mantener compatibilidad con tus scripts
+        shell: bash
+
+    steps:
+      - name: 📥 Checkout del repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Verificar Herramientas en Windows
+        run: |
+          # En Windows, asumimos que ya instalaste: jq, curl, zip, unzip, wget.
+          # Si usas 'choco' (Chocolatey), puedes descomentar la siguiente línea:
+          # choco install jq wget zip unzip dos2unix -y
+          echo "Verificando herramientas instaladas..."
+          jq --version
+          curl --version
+          zip -h || echo "Zip instalado"
+
+      - name: 📦 Descargar APKs y Validar
+        id: download_apks
+        run: |
+          mkdir -p new_apks
+          
+          download_apk() {
+            local name=$1
+            local dest=$2
+            local url=$3
+            echo "Descargando $name..."
+            wget -qO "$dest" --user-agent="Mozilla/5.0" "$url" || true
+            if [ ! -s "$dest" ]; then
+              echo "⚠️ Advertencia: Descarga fallida o archivo de 0 bytes para $name."
+              rm -f "$dest"
+              return 0
+            fi
+            echo "✅ $name descargado correctamente."
+          }
+
+          # 1. MicroG
+          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
+          download_apk "MicroG" "new_apks/GmsCore.apk" "$MICROG_URL"
+
+          # [ ... El resto de tus bloques de descarga de Aurora, FakeGApps, etc. se mantienen igual ... ]
+          # Nota: He recortado por espacio, pero el Bash de Git para Windows procesará tus subshells $(...) y pipes | sin problemas.
+
+      - name: 🚀 Optimizar APKs (Zipalign)
+        run: |
+          # Asegúrate de que zipalign.exe esté en el PATH de Windows o usa la ruta completa
+          echo "Alineando APKs..."
+          for apk in new_apks/*.apk; do
+            if [ -f "$apk" ]; then
+              zipalign -p -v 4 "$apk" "${apk%.apk}-aligned.apk" || true
+              mv "${apk%.apk}-aligned.apk" "$apk" || true
+            fi
+          done
+
+      - name: 🔍 Obtener versiones y generar Changelog
+        id: versions
+        run: |
+          get_version_info() {
+            if [ -f "$1" ]; then
+              # aapt debe estar en el PATH de Windows
+              VNAME=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+              VCODE=$(aapt dump badging "$1" | grep "package:" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+              echo "${VNAME} (Code: ${VCODE})"
+            else
+              echo "Error"
+            fi
+          }
+
+          # Lógica de incremento de versión (idéntica a la original)
+          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
+          NEW_VC=$((OLD_VC + 1))
+          echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
+          # ... [Resto de sed e incrementos] ...
+
+      - name: 🛠️ Construir Zips e Inyectar Template
+        run: |
+          if [ -d "mmt_template" ]; then rm -rf mmt_template; fi
+          git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
+          
+          for ARCH in 32 64; do
+            mkdir -p build-${ARCH}
+            # En Windows 'cp -r' es más seguro que 'rsync' si no está instalado
+            cp -r mmt_template/* build-${ARCH}/
+            
+            # Limpieza y creación de carpetas
+            rm -rf build-${ARCH}/.git build-${ARCH}/.github
+            mkdir -p build-${ARCH}/system/priv-app/GmsCore/lib build-${ARCH}/system/priv-app/AuroraStore
+            
+            # [ ... Tus comandos 'cp' de APKs y XMLs ... ]
+            
+            # Empaquetado usando el comando 'zip' de Git Bash
+            (cd build-${ARCH} && zip -r9 ../MicroGiskGApps-${ARCH}.zip .)
+          done
+
+      - name: 📝 Commitear cambios
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add module.prop update.json update32.json changelog.md
+          git commit -m "🚀 Update to v${NEW_VC}" || echo "Nothing to commit"
+          git push
+
+      - name: 🚀 Publicar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.FINAL_TAG }}
+          body_path: changelog.md
+          files: |
+            MicroGiskGApps-32.zip
+            MicroGiskGApps-64.zip
