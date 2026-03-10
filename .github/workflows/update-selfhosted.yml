@@ -24,11 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ⚙️ Verificar Herramientas en Windows
+      - name: Verificar Herramientas
+        shell: bash
         run: |
-          # En Windows, asumimos que ya instalaste: jq, curl, zip, unzip, wget.
-          # Si usas 'choco' (Chocolatey), puedes descomentar la siguiente línea:
-          # choco install jq wget zip unzip dos2unix -y
+          # Usamos comandos simples sin caracteres especiales para probar
+          echo "Iniciando verificacion..."
+          curl --version || echo "curl no encontrado"
+          jq --version || echo "jq no encontrado"
           echo "Verificando herramientas instaladas..."
           jq --version
           curl --version
@@ -127,3 +129,4 @@ jobs:
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
+
