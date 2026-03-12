@@ -8,9 +8,9 @@
 #### Tienda y Servicios (Store & Services)
 - **Aurora Store**: v4.8.1 (Code: 73)
 - **Aurora Services**: v1.1.1 (Code: 11)
-- **Google Contacts Sync**: v12-8361351 (Code: 31)
-- **Google Calendar Sync**: v2021.41.2-406147485-release (Code: 2017039780)
+- **Google Contacts Sync**: vNo incluido / Error de descarga
+- **Google Calendar Sync**: vNo incluido / Error de descarga
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `7b70d7fa9a7e32d9e715cfaa46ada7e797e9b4f0e8fbb4a9ff1c8b8fcadac551`
-- **32-bit:** `dda4452c1f1d1b663eea27ef98e28d180e7f8b846b98b00efb8fe6f8587c565a`
+- **64-bit:** `ef04ca172f6443118f443fb802f86fc695e94ef69f196a6d0047d1e553c2487f`
+- **32-bit:** `c84fbee7d89956e9a1de3725c7626801d30d11e2b2fa2add81319f3b4a55427e`
