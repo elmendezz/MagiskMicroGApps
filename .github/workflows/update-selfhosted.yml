@@ -30,8 +30,8 @@ jobs:
           :: Usamos PowerShell internamente desde CMD para obtener la URL y descargar
           powershell -Command "$url = (Invoke-RestMethod 'https://api.github.com/repos/microg/GmsCore/releases/latest').assets | Where-Object { $_.name -like 'com.google.android.gms*' -and $_.name -notlike '*-hw*' } | Select-Object -ExpandProperty browser_download_url -First 1; Invoke-WebRequest -Uri $url -OutFile 'new_apks\GmsCore.apk' -UserAgent 'Mozilla/5.0'"
           
-          :: --- 2. Descargar Aurora Store ---
-          powershell -Command "$url = (Invoke-RestMethod 'https://gitlab.com/api/v4/projects/6922885/releases')[0].assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1; Invoke-WebRequest -Uri $url -OutFile 'new_apks\AuroraStore.apk' -UserAgent 'Mozilla/5.0'"
+                    :: --- 2. Descargar Aurora Store ---
+          powershell -Command "$api = Invoke-RestMethod 'https://gitlab.com/api/v4/projects/6922885/releases'; $latest = $api[0]; $url = $null; if ($latest.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') { $url = 'https://gitlab.com/-/project/6922885' + $matches[1] } elseif ($latest.assets.links) { $url = $latest.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1 }; if ($url) { Write-Host 'Descargando Aurora de:' $url; Invoke-WebRequest -Uri $url -OutFile 'new_apks\AuroraStore.apk' -UserAgent 'Mozilla/5.0' } else { Write-Error '❌ No se encontro la URL de Aurora Store'; exit 1 }"
 
           :: --- VERIFICACIÓN DE SEGURIDAD ---
           :: Comprobar si los archivos existen y no son de 0 bytes
