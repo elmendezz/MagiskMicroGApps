@@ -73,11 +73,12 @@ jobs:
 
       - name: 🚀 Optimizar (Zipalign)
         run: |
-          :: Se asume que zipalign esta en el PATH de Windows
+          :: Usando la ruta absoluta de zipalign para evitar errores de PATH
           for %%f in (new_apks\*.apk) do (
-              zipalign -p -f -v 4 "%%f" "%%~dpnf-aligned.apk"
+              "C:\AndroidSDK\build-tools\34.0.0\zipalign.exe" -p -f -v 4 "%%f" "%%~dpnf-aligned.apk"
               move /y "%%~dpnf-aligned.apk" "%%f"
           )
+
 
       - name: 🛠️ Construir Zips (Zip Nativo)
         run: |
