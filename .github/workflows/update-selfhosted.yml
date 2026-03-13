@@ -116,6 +116,7 @@ jobs:
         with:
           tag_name: ${{ env.FINAL_TAG }}
           name: "¡New Version! - ${{ env.FINAL_TAG }}"
+          prerelease: true
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
