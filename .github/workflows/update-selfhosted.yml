@@ -109,7 +109,12 @@ jobs:
           git config user.email "bot@github.com"
           git add module.prop
           git commit -m "🚀 Update to %FINAL_TAG%"
+          
+          :: Sincronizar con el repositorio remoto por si hay cambios nuevos
+          git pull --rebase origin main
+          
           git push origin main
+
 
       - name: 🚀 Publicar Release
         uses: softprops/action-gh-release@v2
