@@ -1,0 +1,13 @@
+### Changelog / Registro de cambios (Pre-release)
+#### Nucleo (Core)
+- **MicroG (GmsCore)**: Actualizado
+- **MicroG Companion**: Actualizado
+- **GsfProxy**: Actualizado
+- **FakeGApps**: Actualizado
+
+#### Tienda y Servicios (Store & Services)
+- **Aurora Store**: Actualizado
+- **Aurora Services**: Actualizado
+- **Google Contacts Sync**: Mantenido
+- **Google Calendar Sync**: Mantenido
+
