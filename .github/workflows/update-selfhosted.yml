@@ -126,7 +126,6 @@ jobs:
           Write-Host "[Info] Buscando MicroGiskGApps-32.zip en el ultimo release..."
           $repo = "${{ github.repository }}"
           try {
-              # Se agrega -ErrorAction Stop para capturar el 404 correctamente si no hay releases previos
               $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -ErrorAction Stop
               $zipUrl = ($latestRelease.assets | Where-Object { $_.name -eq "MicroGiskGApps-32.zip" }).browser_download_url
               
@@ -158,7 +157,6 @@ jobs:
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
-          :: Se usa la ruta absoluta de zipalign como se solicito
           for %%f in (new_apks\*.apk) do (
               "C:\AndroidSDK\build-tools\34.0.0\zipalign.exe" -p -v 4 "%%f" "%%~dpnf-aligned.apk"
               if exist "%%~dpnf-aligned.apk" (
@@ -382,7 +380,7 @@ jobs:
           $hash64 = (Get-FileHash -Path "MicroGiskGApps-64.zip" -Algorithm SHA256).Hash.ToLower()
           $hash32 = (Get-FileHash -Path "MicroGiskGApps-32.zip" -Algorithm SHA256).Hash.ToLower()
           
-          Add-Content -Path "changelog-pre.md" -Value "`n### 🔒 Checksums (SHA256)"
+          Add-Content -Path "changelog-pre.md" -Value "`n### Checksums (SHA256)"
           Add-Content -Path "changelog-pre.md" -Value "- **64-bit:** \`$hash64\`"
           Add-Content -Path "changelog-pre.md" -Value "- **32-bit:** \`$hash32\`"
 
@@ -417,7 +415,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update-pre.json update-pre32.json changelog-pre.md
-          git commit -m "🚀 Update to $tag (VersionCode: $vc)"
+          git commit -m "Update to $tag (VersionCode: $vc)"
           
           $success = $false
           for ($i = 1; $i -le 3; $i++) {
