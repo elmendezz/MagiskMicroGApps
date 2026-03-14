@@ -3,7 +3,6 @@ name: Actualizar MagiskMicroGApps (Windows CMD)
 on:
   workflow_dispatch:
   schedule:
-    # Se ejecuta cada 12 horas
     - cron: '0 */12 * * *'
 
 permissions:
@@ -123,11 +122,12 @@ jobs:
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
           Download-WithProgress -name "GsfProxy" -outPath "new_apks\GsfProxy.apk" -url $gsfProxyUrl
 
-          # 7. Google Sync Apps (Extrayendo del ultimo zip)
+          # 7. Google Sync Apps (Extrayendo del ultimo zip de forma segura)
           Write-Host "[Info] Buscando MicroGiskGApps-32.zip en el ultimo release..."
           $repo = "${{ github.repository }}"
           try {
-              $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+              # Se agrega -ErrorAction Stop para capturar el 404 correctamente si no hay releases previos
+              $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -ErrorAction Stop
               $zipUrl = ($latestRelease.assets | Where-Object { $_.name -eq "MicroGiskGApps-32.zip" }).browser_download_url
               
               if ($zipUrl) {
@@ -149,16 +149,18 @@ jobs:
                   Remove-Item "latest_base.zip" -Force
                   Remove-Item "extracted_base" -Recurse -Force
               } else {
-                  Write-Host "[Aviso] No se encontro el zip base en el ultimo release."
+                  Write-Host "[Aviso] No se encontro el zip en el ultimo release. Se omitiran las Sync Apps."
               }
           } catch {
-              Write-Host "[Error] Error al buscar/extraer el release anterior: $($Error[0])"
+              Write-Host "[Aviso] No hay un release anterior valido o fallo la conexion. Esto es normal en primeras ejecuciones. Se omitira la extraccion."
+              $Error.Clear()
           }
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
+          :: Se usa la ruta absoluta de zipalign como se solicito
           for %%f in (new_apks\*.apk) do (
-              zipalign.exe -p -v 4 "%%f" "%%~dpnf-aligned.apk"
+              "C:\AndroidSDK\build-tools\34.0.0\zipalign.exe" -p -v 4 "%%f" "%%~dpnf-aligned.apk"
               if exist "%%~dpnf-aligned.apk" (
                   move /y "%%~dpnf-aligned.apk" "%%f"
               )
