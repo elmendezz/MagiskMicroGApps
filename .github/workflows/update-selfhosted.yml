@@ -21,119 +21,81 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 📦 Descargar APKs y Validar (Powershell nativo)
+      - name: 📦 Descargar APKs y Validar (Powershell nativo - Paralelo)
         shell: powershell
         run: |
           if (-not (Test-Path "new_apks")) { New-Item -ItemType Directory -Path "new_apks" | Out-Null }
 
-          function Download-WithProgress {
-              param([string]$name, [string]$outPath, [string]$url)
-              if (-not $url -or $url -eq "null") {
-                  Write-Host "[Advertencia] URL invalida para $($name). Se omitira."
-                  return
-              }
-              Write-Host "[Descarga] Iniciando $($name) desde: $url"
-              
-              try {
-                  $request = [System.Net.WebRequest]::Create($url)
-                  $request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                  $response = $request.GetResponse()
-                  $totalLength = $response.ContentLength
-                  
-                  $stream = $response.GetResponseStream()
-                  $fileStream = [System.IO.FileStream]::new($outPath, [System.IO.FileMode]::Create)
-                  $buffer = New-Object byte[] 8192
-                  $downloaded = 0
-                  $lastPercent = -1
-
-                  do {
-                      $read = $stream.Read($buffer, 0, $buffer.Length)
-                      if ($read -gt 0) {
-                          $downloaded += $read
-                          $fileStream.Write($buffer, 0, $read)
-                          if ($totalLength -gt 0) {
-                              $percent = [math]::Floor(($downloaded / $totalLength) * 100)
-                              if (($percent % 10 -eq 0) -and ($percent -ne $lastPercent)) {
-                                  Write-Host " -> $($name) Progreso: $percent%"
-                                  $lastPercent = $percent
-                              }
-                          }
-                      }
-                  } while ($read -gt 0)
-                  
-                  $fileStream.Dispose()
-                  $stream.Dispose()
-                  $response.Dispose()
-                  
-                  if ((Get-Item $outPath).Length -lt 1024) {
-                      Write-Host "[Error] Descarga fallida o archivo de 0 bytes para $($name). Se omitira."
-                      Remove-Item $outPath -Force
-                  } else {
-                      Write-Host "[OK] $($name) descargado correctamente.`n"
-                  }
-              } catch {
-                  Write-Host "[Error] Error al descargar $($name): $($Error[0])"
-                  if (Test-Path $outPath) { Remove-Item $outPath -Force }
-              }
-          }
-
-          # 1. MicroG (GmsCore)
+          Write-Host "[Info] Obteniendo URLs de descarga..."
+          
+          # 1. MicroG
           $microgUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GmsCore/releases/latest').assets | Where-Object { $_.name -like 'com.google.android.gms*' -and $_.name -notlike '*-hw*' } | Select-Object -ExpandProperty browser_download_url -First 1
-          Download-WithProgress -name "MicroG" -outPath "new_apks\GmsCore.apk" -url $microgUrl
-
-          # 2. MicroG Companion
+          
+          # 2. Companion
           $companionUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GmsCore/releases/latest').assets | Where-Object { $_.name -like 'com.android.vending*' -and $_.name -notlike '*-hw*' } | Select-Object -ExpandProperty browser_download_url -First 1
-          Download-WithProgress -name "MicroG Companion" -outPath "new_apks\Companion.apk" -url $companionUrl
-
+          
           # 3. Aurora Store
           $auroraApi = Invoke-RestMethod 'https://gitlab.com/api/v4/projects/6922885/releases'
           $latestAurora = $auroraApi[0]
           $auroraUrl = $null
-          if ($latestAurora.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') { 
-              $auroraUrl = 'https://gitlab.com/-/project/6922885' + $matches[1] 
-          } elseif ($latestAurora.assets.links) { 
-              $auroraUrl = ($latestAurora.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1)
-          }
-          Download-WithProgress -name "Aurora Store" -outPath "new_apks\AuroraStore.apk" -url $auroraUrl
+          if ($latestAurora.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') { $auroraUrl = 'https://gitlab.com/-/project/6922885' + $matches[1] } 
+          elseif ($latestAurora.assets.links) { $auroraUrl = ($latestAurora.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1) }
 
           # 4. Aurora Services
           $svcApi = Invoke-RestMethod 'https://gitlab.com/api/v4/projects/8363046/releases'
           $latestSvc = $svcApi[0]
           $svcUrl = $null
-          if ($latestSvc.assets.links) {
-              $svcUrl = ($latestSvc.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1)
-          }
-          if (-not $svcUrl -and $latestSvc.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') {
-              $svcUrl = 'https://gitlab.com/-/project/8363046' + $matches[1]
-          }
-          if (-not $svcUrl) {
-              Write-Host "[Info] Usando version base segura para Aurora Services..."
-              $svcUrl = "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk"
-          }
-          Download-WithProgress -name "Aurora Services" -outPath "new_apks\AuroraServices.apk" -url $svcUrl
+          if ($latestSvc.assets.links) { $svcUrl = ($latestSvc.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1) }
+          if (-not $svcUrl -and $latestSvc.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') { $svcUrl = 'https://gitlab.com/-/project/8363046' + $matches[1] }
+          if (-not $svcUrl) { $svcUrl = "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk" }
 
           # 5. FakeGApps
           $fakeGappsUrl = (Invoke-RestMethod 'https://api.github.com/repos/whew-inc/FakeGApps/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $fakeGappsUrl) { $fakeGappsUrl = "https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk" }
-          Download-WithProgress -name "FakeGApps" -outPath "new_apks\FakeGApps.apk" -url $fakeGappsUrl
 
           # 6. GsfProxy
           $gsfProxyUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GsfProxy/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
-          Download-WithProgress -name "GsfProxy" -outPath "new_apks\GsfProxy.apk" -url $gsfProxyUrl
 
-          # 7. Google Sync Apps (Extrayendo del ultimo zip de forma segura)
-          Write-Host "[Info] Buscando MicroGiskGApps-32.zip en el ultimo release..."
+          # --- INICIO DE DESCARGAS EN PARALELO ---
+          $downloads = @(
+              @{ Name = "MicroG"; OutPath = "new_apks\GmsCore.apk"; Url = $microgUrl },
+              @{ Name = "Companion"; OutPath = "new_apks\Companion.apk"; Url = $companionUrl },
+              @{ Name = "Aurora Store"; OutPath = "new_apks\AuroraStore.apk"; Url = $auroraUrl },
+              @{ Name = "Aurora Services"; OutPath = "new_apks\AuroraServices.apk"; Url = $svcUrl },
+              @{ Name = "FakeGApps"; OutPath = "new_apks\FakeGApps.apk"; Url = $fakeGappsUrl },
+              @{ Name = "GsfProxy"; OutPath = "new_apks\GsfProxy.apk"; Url = $gsfProxyUrl }
+          )
+
+          Write-Host "`n[Info] Lanzando descargas en segundo plano..."
+          $jobs = foreach ($dl in $downloads) {
+              Start-Job -ScriptBlock {
+                  param($name, $path, $url)
+                  if (-not $url -or $url -eq "null") { return "[Advertencia] URL invalida para $name." }
+                  try {
+                      $ProgressPreference = 'SilentlyContinue' 
+                      Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
+                      if ((Get-Item $path).Length -lt 1024) {
+                          Remove-Item $path -Force
+                          return "[Error] $name descargo 0 bytes o corrupto."
+                      }
+                      return "[OK] $name descargado."
+                  } catch {
+                      return "[Error] Fallo en $name : $($Error[0])"
+                  }
+              } -ArgumentList $dl.Name, $dl.OutPath, $dl.Url
+          }
+
+          # 7. Mientras se descarga todo lo anterior, extraemos las Sync Apps
+          Write-Host "`n[Info] Procesando Google Sync Apps simultaneamente..."
           $repo = "${{ github.repository }}"
           try {
               $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -ErrorAction Stop
               $zipUrl = ($latestRelease.assets | Where-Object { $_.name -eq "MicroGiskGApps-32.zip" }).browser_download_url
               
               if ($zipUrl) {
-                  Write-Host "[Descarga] Descargando zip base..."
-                  Invoke-WebRequest -Uri $zipUrl -OutFile "latest_base.zip"
-                  
-                  Write-Host "[Info] Extrayendo Sync Apps..."
+                  $ProgressPreference = 'SilentlyContinue'
+                  Invoke-WebRequest -Uri $zipUrl -OutFile "latest_base.zip" -UseBasicParsing
                   Expand-Archive -Path "latest_base.zip" -DestinationPath "extracted_base" -Force
                   
                   if (Test-Path "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk") {
@@ -144,16 +106,20 @@ jobs:
                       Copy-Item "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk" -Destination "new_apks\GoogleCalendarSync.apk" -Force
                       Write-Host "[OK] Google Calendar Sync extraido."
                   }
-                  
                   Remove-Item "latest_base.zip" -Force
                   Remove-Item "extracted_base" -Recurse -Force
-              } else {
-                  Write-Host "[Aviso] No se encontro el zip en el ultimo release. Se omitiran las Sync Apps."
               }
           } catch {
-              Write-Host "[Aviso] No hay un release anterior valido o fallo la conexion. Esto es normal en primeras ejecuciones. Se omitira la extraccion."
-              $Error.Clear()
+              Write-Host "[Aviso] No hay un release anterior valido para Sync Apps. Se omitira."
           }
+
+          # --- ESPERAR A QUE TERMINEN LAS DESCARGAS ---
+          Write-Host "`n[Info] Esperando a que finalicen las descargas de APKs..."
+          Wait-Job $jobs | Out-Null
+          Receive-Job $jobs | Write-Host
+          Remove-Job $jobs
+
+          Write-Host "[Info] Proceso de descargas finalizado."
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
@@ -374,17 +340,17 @@ jobs:
               Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName -Force
           }
 
-      - name: 🔒 Generar Hashes de Seguridad y anexar al Changelog
+      - name: 🔒 Generar Hashes de Seguridad y anexar al Changelog (COMENTADO)
         shell: powershell
         run: |
-          $hash64 = (Get-FileHash -Path "MicroGiskGApps-64.zip" -Algorithm SHA256).Hash.ToLower()
-          $hash32 = (Get-FileHash -Path "MicroGiskGApps-32.zip" -Algorithm SHA256).Hash.ToLower()
-          
-          Add-Content -Path "changelog-pre.md" -Value "`n### Checksums (SHA256)"
-          
-          # Concatenacion simple para evitar conflictos de comillas en PS
-          Add-Content -Path "changelog-pre.md" -Value ("- **64-bit:** `" + $hash64 + "`")
-          Add-Content -Path "changelog-pre.md" -Value ("- **32-bit:** `" + $hash32 + "`")
+          # $hash64 = (Get-FileHash -Path "MicroGiskGApps-64.zip" -Algorithm SHA256).Hash.ToLower()
+          # $hash32 = (Get-FileHash -Path "MicroGiskGApps-32.zip" -Algorithm SHA256).Hash.ToLower()
+          # 
+          # Add-Content -Path "changelog-pre.md" -Value "`n### Checksums (SHA256)"
+          # 
+          # Add-Content -Path "changelog-pre.md" -Value ('- **64-bit:** `' + $hash64 + '`')
+          # Add-Content -Path "changelog-pre.md" -Value ('- **32-bit:** `' + $hash32 + '`')
+          Write-Host "[Info] Paso de hashes omitido por el momento."
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         shell: powershell
