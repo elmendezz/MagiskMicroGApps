@@ -30,10 +30,10 @@ jobs:
           function Download-WithProgress {
               param([string]$name, [string]$outPath, [string]$url)
               if (-not $url -or $url -eq "null") {
-                  Write-Host "⚠️ Advertencia: URL inválida para $name. Se omitirá."
+                  Write-Host "[Advertencia] URL invalida para $($name). Se omitira."
                   return
               }
-              Write-Host "🌐 Descargando $name desde: $url"
+              Write-Host "[Descarga] Iniciando $($name) desde: $url"
               
               try {
                   $request = [System.Net.WebRequest]::Create($url)
@@ -55,7 +55,7 @@ jobs:
                           if ($totalLength -gt 0) {
                               $percent = [math]::Floor(($downloaded / $totalLength) * 100)
                               if (($percent % 10 -eq 0) -and ($percent -ne $lastPercent)) {
-                                  Write-Host "⏳ $name Progreso: $percent%"
+                                  Write-Host " -> $($name) Progreso: $percent%"
                                   $lastPercent = $percent
                               }
                           }
@@ -67,13 +67,13 @@ jobs:
                   $response.Dispose()
                   
                   if ((Get-Item $outPath).Length -lt 1024) {
-                      Write-Host "⚠️ Advertencia: Descarga fallida o archivo de 0 bytes para $name. Se omitirá."
+                      Write-Host "[Error] Descarga fallida o archivo de 0 bytes para $($name). Se omitira."
                       Remove-Item $outPath -Force
                   } else {
-                      Write-Host "✅ $name descargado correctamente.`n"
+                      Write-Host "[OK] $($name) descargado correctamente.`n"
                   }
               } catch {
-                  Write-Host "⚠️ Error al descargar $name: $_"
+                  Write-Host "[Error] Error al descargar $($name): $($Error[0])"
                   if (Test-Path $outPath) { Remove-Item $outPath -Force }
               }
           }
@@ -108,7 +108,7 @@ jobs:
               $svcUrl = 'https://gitlab.com/-/project/8363046' + $matches[1]
           }
           if (-not $svcUrl) {
-              Write-Host "⏸️ Usando versión base segura para Aurora Services..."
+              Write-Host "[Info] Usando version base segura para Aurora Services..."
               $svcUrl = "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk"
           }
           Download-WithProgress -name "Aurora Services" -outPath "new_apks\AuroraServices.apk" -url $svcUrl
@@ -123,42 +123,40 @@ jobs:
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
           Download-WithProgress -name "GsfProxy" -outPath "new_apks\GsfProxy.apk" -url $gsfProxyUrl
 
-          # 7. Google Sync Apps (Extrayendo del último zip)
-          Write-Host "🔍 Buscando MicroGiskGApps-32.zip en el último release..."
+          # 7. Google Sync Apps (Extrayendo del ultimo zip)
+          Write-Host "[Info] Buscando MicroGiskGApps-32.zip en el ultimo release..."
           $repo = "${{ github.repository }}"
           try {
               $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
               $zipUrl = ($latestRelease.assets | Where-Object { $_.name -eq "MicroGiskGApps-32.zip" }).browser_download_url
               
               if ($zipUrl) {
-                  Write-Host "📦 Descargando zip base..."
+                  Write-Host "[Descarga] Descargando zip base..."
                   Invoke-WebRequest -Uri $zipUrl -OutFile "latest_base.zip"
                   
-                  Write-Host "📂 Extrayendo Sync Apps..."
+                  Write-Host "[Info] Extrayendo Sync Apps..."
                   Expand-Archive -Path "latest_base.zip" -DestinationPath "extracted_base" -Force
                   
                   if (Test-Path "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk") {
                       Copy-Item "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk" -Destination "new_apks\GoogleContactsSync.apk" -Force
-                      Write-Host "✅ Google Contacts Sync extraído."
+                      Write-Host "[OK] Google Contacts Sync extraido."
                   }
                   if (Test-Path "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk") {
                       Copy-Item "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk" -Destination "new_apks\GoogleCalendarSync.apk" -Force
-                      Write-Host "✅ Google Calendar Sync extraído."
+                      Write-Host "[OK] Google Calendar Sync extraido."
                   }
                   
                   Remove-Item "latest_base.zip" -Force
                   Remove-Item "extracted_base" -Recurse -Force
               } else {
-                  Write-Host "⚠️ No se encontró el zip base en el último release."
+                  Write-Host "[Aviso] No se encontro el zip base en el ultimo release."
               }
           } catch {
-              Write-Host "⚠️ Error al buscar/extraer el release anterior."
+              Write-Host "[Error] Error al buscar/extraer el release anterior: $($Error[0])"
           }
 
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
-          :: Asumiendo que zipalign está en una ruta conocida o en el PATH
-          :: Si no está en el PATH de tu runner, cambia "zipalign.exe" por la ruta completa (ej. "C:\AndroidSDK\build-tools\34.0.0\zipalign.exe")
           for %%f in (new_apks\*.apk) do (
               zipalign.exe -p -v 4 "%%f" "%%~dpnf-aligned.apk"
               if exist "%%~dpnf-aligned.apk" (
@@ -170,10 +168,6 @@ jobs:
         id: vars
         shell: powershell
         run: |
-          # En Windows no solemos tener aapt por defecto en el PATH como en Ubuntu.
-          # Para simplificar y evitar dependencias complejas, leeremos las versiones del module.prop anterior o dejaremos marcadores genéricos.
-          # Si tienes aapt en tu self-hosted runner, puedes implementarlo similar a zipalign.
-          
           $modulePath = "module.prop"
           if (-not (Test-Path $modulePath)) { New-Item $modulePath -ItemType File | Out-Null }
           
@@ -188,7 +182,6 @@ jobs:
           
           $newVc = $oldVc + 1
           
-          # Lógica para incrementar version mayor.menor
           $parts = $oldVer.Split('.')
           $major = [int]$parts[0]
           $minor = 0
@@ -198,7 +191,6 @@ jobs:
           
           $newVer = "A" + $major + "." + $minor + "-MicroG"
           
-          # Actualizar module.prop
           $newContent = @()
           $hasId = $false; $hasName = $false; $hasVersion = $false; $hasVc = $false
           
@@ -220,10 +212,9 @@ jobs:
           echo "NEW_VC=$newVc" >> $env:GITHUB_ENV
           echo "FINAL_TAG=$newVer" >> $env:GITHUB_ENV
           
-          # Generar Changelog
           $changelog = @"
-          ### Changelog / Registro de cambios
-          #### Núcleo (Core)
+          ### Changelog / Registro de cambios (Pre-release)
+          #### Nucleo (Core)
           - **MicroG (GmsCore)**: Actualizado
           - **MicroG Companion**: Actualizado
           - **GsfProxy**: Actualizado
@@ -236,7 +227,7 @@ jobs:
           - **Google Calendar Sync**: Mantenido
           
           "@
-          $changelog | Set-Content "changelog.md"
+          $changelog | Set-Content "changelog-pre.md"
 
       - name: 🔐 Generar Archivos de Permisos Totales (XML)
         shell: powershell
@@ -306,10 +297,8 @@ jobs:
               $buildDir = "build-$arch"
               if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
               
-              # Copiar template básico (reemplazo de rsync)
               Copy-Item -Path "mmt_template" -Destination $buildDir -Recurse
               
-              # Limpieza de template
               $itemsToRemove = @(".git", ".github", "README.md", ".gitignore", "changelog.md", "LICENSE", "update.json", "install.zip", "zygisk")
               foreach ($item in $itemsToRemove) {
                   $pathToRemove = Join-Path $buildDir $item
@@ -317,7 +306,6 @@ jobs:
               }
               Get-ChildItem -Path $buildDir -Recurse -Filter "*placeholder*" | Remove-Item -Force
               
-              # Crear estructura de directorios
               $dirs = @(
                   "system\priv-app\GmsCore",
                   "system\priv-app\Companion",
@@ -335,13 +323,11 @@ jobs:
                   New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
               }
               
-              # Copiar archivos base
               Copy-Item "module.prop" -Destination $buildDir -Force
               if (Test-Path "uninstall.sh") { Copy-Item "uninstall.sh" -Destination $buildDir -Force }
               if (Test-Path "common") { Copy-Item "common\*" -Destination "$buildDir\common\" -Recurse -Force }
               if (Test-Path "system") { Copy-Item "system\*" -Destination "$buildDir\system\" -Recurse -Force }
               
-              # Copiar APKs
               $apkMap = @{
                   "GmsCore.apk" = "system\priv-app\GmsCore"
                   "Companion.apk" = "system\priv-app\Companion"
@@ -361,12 +347,10 @@ jobs:
                   }
               }
               
-              # Copiar Permisos
               Copy-Item "new_permissions\privapp-permissions-microg.xml" -Destination "$buildDir\system\etc\permissions\" -Force
               Copy-Item "new_permissions\sysconfig-microg.xml" -Destination "$buildDir\system\etc\sysconfig\" -Force
               
-              # Configurar updateJson
-              $jsonFile = if ($arch -eq "32") { "update32.json" } else { "update.json" }
+              $jsonFile = if ($arch -eq "32") { "update-pre32.json" } else { "update-pre.json" }
               $repo = "${{ github.repository }}"
               $modPropPath = "$buildDir\module.prop"
               $propContent = Get-Content $modPropPath
@@ -385,7 +369,6 @@ jobs:
               }
               $newPropContent | Set-Content $modPropPath
               
-              # Comprimir
               $zipName = "MicroGiskGApps-$arch.zip"
               if (Test-Path $zipName) { Remove-Item $zipName -Force }
               Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName -Force
@@ -397,9 +380,9 @@ jobs:
           $hash64 = (Get-FileHash -Path "MicroGiskGApps-64.zip" -Algorithm SHA256).Hash.ToLower()
           $hash32 = (Get-FileHash -Path "MicroGiskGApps-32.zip" -Algorithm SHA256).Hash.ToLower()
           
-          Add-Content -Path "changelog.md" -Value "`n### 🔒 Checksums (SHA256)"
-          Add-Content -Path "changelog.md" -Value "- **64-bit:** \`$hash64\`"
-          Add-Content -Path "changelog.md" -Value "- **32-bit:** \`$hash32\`"
+          Add-Content -Path "changelog-pre.md" -Value "`n### 🔒 Checksums (SHA256)"
+          Add-Content -Path "changelog-pre.md" -Value "- **64-bit:** \`$hash64\`"
+          Add-Content -Path "changelog-pre.md" -Value "- **32-bit:** \`$hash32\`"
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         shell: powershell
@@ -413,39 +396,37 @@ jobs:
             "version": "$tag",
             "versionCode": $vc,
             "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-64.zip",
-            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog.md"
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre.md"
           }
           "@
-          $updateJson | Set-Content "update.json"
+          $updateJson | Set-Content "update-pre.json"
           
           $update32Json = @"
           {
             "version": "$tag",
             "versionCode": $vc,
             "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog.md"
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre.md"
           }
           "@
-          $update32Json | Set-Content "update32.json"
+          $update32Json | Set-Content "update-pre32.json"
           
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add module.prop update.json update32.json changelog.md
+          git add module.prop update-pre.json update-pre32.json changelog-pre.md
           git commit -m "🚀 Update to $tag (VersionCode: $vc)"
           
-          # Retry logic for push
           $success = $false
           for ($i = 1; $i -le 3; $i++) {
               try {
-                  # Using CMD explicitly for git push to avoid powershell parsing issues with URL
                   cmd.exe /c "git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main"
                   if ($LASTEXITCODE -eq 0) {
                       $success = $true
                       break
                   }
               } catch {}
-              Write-Host "⚠️ Fallo en el push de GitHub. Reintentando en 10 segundos... (Intento $i/3)"
+              Write-Host "[Aviso] Fallo en el push de GitHub. Reintentando en 10 segundos... (Intento $i/3)"
               Start-Sleep -Seconds 10
           }
           if (-not $success) { Write-Error "Push failed after 3 attempts" }
@@ -455,8 +436,9 @@ jobs:
         with:
           tag_name: ${{ env.FINAL_TAG }}
           name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
-          body_path: changelog.md
+          body_path: changelog-pre.md
           token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: true
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
