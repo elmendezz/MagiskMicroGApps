@@ -381,8 +381,10 @@ jobs:
           $hash32 = (Get-FileHash -Path "MicroGiskGApps-32.zip" -Algorithm SHA256).Hash.ToLower()
           
           Add-Content -Path "changelog-pre.md" -Value "`n### Checksums (SHA256)"
-          Add-Content -Path "changelog-pre.md" -Value "- **64-bit:** \`$hash64\`"
-          Add-Content -Path "changelog-pre.md" -Value "- **32-bit:** \`$hash32\`"
+          
+          # Concatenacion simple para evitar conflictos de comillas en PS
+          Add-Content -Path "changelog-pre.md" -Value ("- **64-bit:** `" + $hash64 + "`")
+          Add-Content -Path "changelog-pre.md" -Value ("- **32-bit:** `" + $hash32 + "`")
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         shell: powershell
