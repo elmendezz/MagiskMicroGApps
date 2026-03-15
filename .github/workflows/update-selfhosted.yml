@@ -57,17 +57,20 @@ jobs:
           $gsfProxyUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GsfProxy/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
 
+          # Obtenemos la ruta absoluta del workspace para el paralelismo
+          $workspace = Get-Location
+
           # --- INICIO DE DESCARGAS EN PARALELO ---
           $downloads = @(
-              @{ Name = "MicroG"; OutPath = "new_apks\GmsCore.apk"; Url = $microgUrl },
-              @{ Name = "Companion"; OutPath = "new_apks\Companion.apk"; Url = $companionUrl },
-              @{ Name = "Aurora Store"; OutPath = "new_apks\AuroraStore.apk"; Url = $auroraUrl },
-              @{ Name = "Aurora Services"; OutPath = "new_apks\AuroraServices.apk"; Url = $svcUrl },
-              @{ Name = "FakeGApps"; OutPath = "new_apks\FakeGApps.apk"; Url = $fakeGappsUrl },
-              @{ Name = "GsfProxy"; OutPath = "new_apks\GsfProxy.apk"; Url = $gsfProxyUrl }
+              @{ Name = "MicroG"; OutPath = "$workspace\new_apks\GmsCore.apk"; Url = $microgUrl },
+              @{ Name = "Companion"; OutPath = "$workspace\new_apks\Companion.apk"; Url = $companionUrl },
+              @{ Name = "Aurora Store"; OutPath = "$workspace\new_apks\AuroraStore.apk"; Url = $auroraUrl },
+              @{ Name = "Aurora Services"; OutPath = "$workspace\new_apks\AuroraServices.apk"; Url = $svcUrl },
+              @{ Name = "FakeGApps"; OutPath = "$workspace\new_apks\FakeGApps.apk"; Url = $fakeGappsUrl },
+              @{ Name = "GsfProxy"; OutPath = "$workspace\new_apks\GsfProxy.apk"; Url = $gsfProxyUrl }
           )
 
-          Write-Host "`n[Info] Lanzando descargas en segundo plano..."
+          Write-Host "`n[Info] Lanzando descargas en segundo plano con rutas absolutas..."
           $jobs = foreach ($dl in $downloads) {
               Start-Job -ScriptBlock {
                   param($name, $path, $url)
@@ -79,7 +82,7 @@ jobs:
                           Remove-Item $path -Force
                           return "[Error] $name descargo 0 bytes o corrupto."
                       }
-                      return "[OK] $name descargado."
+                      return "[OK] $name descargado exitosamente en $path."
                   } catch {
                       return "[Error] Fallo en $name : $($Error[0])"
                   }
@@ -99,11 +102,11 @@ jobs:
                   Expand-Archive -Path "latest_base.zip" -DestinationPath "extracted_base" -Force
                   
                   if (Test-Path "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk") {
-                      Copy-Item "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk" -Destination "new_apks\GoogleContactsSync.apk" -Force
+                      Copy-Item "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk" -Destination "$workspace\new_apks\GoogleContactsSync.apk" -Force
                       Write-Host "[OK] Google Contacts Sync extraido."
                   }
                   if (Test-Path "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk") {
-                      Copy-Item "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk" -Destination "new_apks\GoogleCalendarSync.apk" -Force
+                      Copy-Item "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk" -Destination "$workspace\new_apks\GoogleCalendarSync.apk" -Force
                       Write-Host "[OK] Google Calendar Sync extraido."
                   }
                   Remove-Item "latest_base.zip" -Force
@@ -310,6 +313,8 @@ jobs:
                   if (Test-Path $src) {
                       $destDir = Join-Path $buildDir $apkMap[$key]
                       Copy-Item $src -Destination "$destDir\$key" -Force
+                  } else {
+                      Write-Host "[Error] ¡Falta el archivo $key! La carpeta en el ZIP quedará vacía." -ForegroundColor Red
                   }
               }
               
@@ -393,28 +398,12 @@ jobs:
                       $success = $true
                       break
                   }
-              } catch {}
-              Write-Host "[Aviso] Fallo en el push de GitHub. Reintentando en 10 segundos... (Intento $i/3)"
-              Start-Sleep -Seconds 10
+              } catch {
+                  Write-Host "[Advertencia] Intento $i fallido. Reintentando..."
+              }
           }
-          if (-not $success) { Write-Error "Push failed after 3 attempts" }
-
-      - name: 🚀 Publicar Release en GitHub
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
-          body_path: changelog-pre.md
-          token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: true
-          files: |
-            MicroGiskGApps-32.zip
-            MicroGiskGApps-64.zip
-
-      - name: 🧹 Limpiar Releases y Tags Antiguos
-        uses: dev-drprasad/delete-older-releases@v0.3.3
-        with:
-          keep_latest: 30
-          delete_tags: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+          if (-not $success) {
+              Write-Error "[Error] No se pudo hacer push a GitHub después de 3 intentos."
+              exit 1
+          }
