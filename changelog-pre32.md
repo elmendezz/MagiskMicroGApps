@@ -8,5 +8,5 @@
 #### Tienda y Servicios (Store & Services)
 - **Aurora Store**: Actualizado
 - **Aurora Services**: Actualizado
-- **Google Contacts Sync**: Actualizado (dreamwhite)
-- **Google Calendar Sync**: Actualizado (dreamwhite)
+- **Google Contacts Sync**: Actualizado
+- **Google Calendar Sync**: Actualizado
