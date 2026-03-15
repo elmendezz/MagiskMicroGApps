@@ -1,4 +1,4 @@
-name: Actualizar MagiskMicroGApps (Windows Bash)
+name: Actualizar MagiskMicroGApps (Windows Bash - Pre-release)
 
 on:
   workflow_dispatch:
@@ -114,7 +114,7 @@ jobs:
             if(minor>=10) { major++; minor=0; } 
             print major"."minor 
           }')
-          FINAL_TAG="A${NEW_VER}-MicroG"
+          FINAL_TAG="A${NEW_VER}-PREBASH"
 
           echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
           echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
@@ -122,10 +122,10 @@ jobs:
           sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop || echo "versionCode=$NEW_VC" >> module.prop
           sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop || echo "version=$FINAL_TAG" >> module.prop
           sed -i 's/^id=.*/id=MicroGiskGApps/' module.prop || echo "id=MicroGiskGApps" >> module.prop
-          sed -i 's/^name=.*/name=MicroGiskGApps/' module.prop || echo "name=MicroGiskGApps" >> module.prop
+          sed -i 's/^name=.*/name=MicroGiskGApps (PreBash)/' module.prop || echo "name=MicroGiskGApps (PreBash)" >> module.prop
 
-          cat <<EOF > changelog.md
-          ### Changelog / Registro de cambios
+          cat <<EOF > changelog-prebash.md
+          ### Changelog / Registro de cambios (PREBASH)
           #### Núcleo (Core)
           - **MicroG (GmsCore)**: Actualizado
           - **MicroG Companion**: Actualizado
@@ -220,7 +220,8 @@ jobs:
             cp new_permissions/privapp-permissions-microg.xml build-${ARCH}/system/etc/permissions/
             cp new_permissions/sysconfig-microg.xml build-${ARCH}/system/etc/sysconfig/
 
-            JSON_FILE=$([ "$ARCH" == "32" ] && echo "update32.json" || echo "update.json")
+            # Aquí se inyecta update-prebash.json o update-prebash32.json dentro del module.prop del ZIP
+            JSON_FILE=$([ "$ARCH" == "32" ] && echo "update-prebash32.json" || echo "update-prebash.json")
             sed -i -e '$a\' build-${ARCH}/module.prop
             
             if grep -q "^updateJson=" build-${ARCH}/module.prop; then
@@ -239,7 +240,7 @@ jobs:
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
             "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-64.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog-prebash.md"
           }
           EOF
 
@@ -248,23 +249,24 @@ jobs:
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
             "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog-prebash.md"
           }
           EOF
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add module.prop update.json update32.json changelog.md
-          git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
+          git add module.prop update-prebash.json update-prebash32.json changelog-prebash.md
+          git commit -m "🚀 PREBASH Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
           git push origin HEAD:main
 
       - name: 🚀 Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
-          body_path: changelog.md
+          name: "${{ env.FINAL_TAG }} - PREBASH Build"
+          body_path: changelog-prebash.md
+          prerelease: true # <- ESTO MARCA EL RELEASE COMO PRERELEASE OFICIAL EN GITHUB
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
