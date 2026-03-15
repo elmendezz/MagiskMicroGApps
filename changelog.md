@@ -12,5 +12,5 @@
 - **Google Calendar Sync**: vNo incluido / Error de descarga
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `69bff21a05c37060a1d1b0e41bf4e0d6886a23f48789fe79684a88e7214ae086`
-- **32-bit:** `d74af508dca9b95efb36a66a867d28a482355d3f10d4db342b4d9a6e8cfe2e20`
+- **64-bit:** `12f98c895f6b01cd0ce2d9c4083bf1f2cb1b159ad52222d77207f9db79896f16`
+- **32-bit:** `73d04c52c7c7b380b79d9ceb10c1cf18746e404f838e20f0c708ba785a6d03ef`
