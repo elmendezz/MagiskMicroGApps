@@ -104,7 +104,6 @@ jobs:
         run: |
           AAPT="C:/AndroidSDK/build-tools/34.0.0/aapt.exe"
           
-          # Función segura para obtener versión en Bash usando AAPT
           get_apk_version() {
             local apk_path=$1
             if [ ! -f "$apk_path" ]; then
@@ -130,16 +129,15 @@ jobs:
           VER_CONTACTS=$(get_apk_version "new_apks/GoogleContactsSync.apk")
           VER_CALENDAR=$(get_apk_version "new_apks/GoogleCalendarSync.apk")
 
-          # Archivo de propiedades específico para prebash
           PROP_FILE="module-prebash.prop"
           [ -f "$PROP_FILE" ] || echo -e "id=MicroGiskGApps-PreBash\nname=MicroGiskGApps (PreBash)\nversion=A13.0-PREBASH\nversionCode=1\nauthor=TuNombre\ndescription=Modulo MicroG PreBash." > "$PROP_FILE"
 
-          OLD_VC=$(grep '^versionCode=' "$PROP_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' \r' || echo "1")
+          # LIMPIEZA AGRESIVA DE VARIABLES (\r \n y espacios)
+          OLD_VC=$(grep '^versionCode=' "$PROP_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ' || echo "1")
           if [ -z "$OLD_VC" ]; then OLD_VC="1"; fi
-          
           NEW_VC=$((OLD_VC + 1))
           
-          OLD_VER=$(grep '^version=' "$PROP_FILE" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          OLD_VER=$(grep '^version=' "$PROP_FILE" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 | tr -d '\r\n ' || echo "13.0")
           if [ -z "$OLD_VER" ]; then OLD_VER="13.0"; fi
           
           NEW_VER=$(echo "$OLD_VER" | awk -F. '{ 
@@ -147,19 +145,24 @@ jobs:
             if(minor=="") minor=0; minor++; 
             if(minor>=10) { major++; minor=0; } 
             print major"."minor 
-          }')
+          }' | tr -d '\r\n ')
+          
           FINAL_TAG="A${NEW_VER}-PREBASH"
+          
+          echo "==== DEBUG INFO ===="
+          echo "OLD_VC: $OLD_VC -> NEW_VC: $NEW_VC"
+          echo "OLD_VER: $OLD_VER -> FINAL_TAG: $FINAL_TAG"
+          echo "===================="
 
-          echo "NEW_VC=$NEW_VC" >> "$GITHUB_ENV"
-          echo "FINAL_TAG=$FINAL_TAG" >> "$GITHUB_ENV"
+          # Exportar al entorno limpiamente
+          echo "NEW_VC=${NEW_VC}" >> "$GITHUB_ENV"
+          echo "FINAL_TAG=${FINAL_TAG}" >> "$GITHUB_ENV"
 
-          # Actualizar el archivo de propiedades
           sed -i -E "s/^versionCode=.*/versionCode=$NEW_VC/" "$PROP_FILE"
           sed -i -E "s/^version=.*/version=$FINAL_TAG/" "$PROP_FILE"
           sed -i -E 's/^id=.*/id=MicroGiskGApps-PreBash/' "$PROP_FILE"
           sed -i -E 's/^name=.*/name=MicroGiskGApps (PreBash)/' "$PROP_FILE"
 
-          # Generar changelogs inyectando las versiones leídas
           cat <<EOF > changelog-prebash.md
           ### Changelog / Registro de cambios (PREBASH)
           #### Núcleo (Core)
@@ -241,7 +244,6 @@ jobs:
             
             mkdir -p build-${ARCH}/system/priv-app/GmsCore build-${ARCH}/system/priv-app/Companion build-${ARCH}/system/priv-app/FakeGApps build-${ARCH}/system/priv-app/AuroraServices build-${ARCH}/system/priv-app/AuroraStore build-${ARCH}/system/app/GsfProxy build-${ARCH}/system/app/GoogleContactsSync build-${ARCH}/system/app/GoogleCalendarSync build-${ARCH}/system/etc/permissions build-${ARCH}/system/etc/sysconfig
             
-            # Copiar el prop prebash al build renombrandolo a module.prop
             cp module-prebash.prop build-${ARCH}/module.prop
             [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
@@ -259,7 +261,6 @@ jobs:
             cp new_permissions/privapp-permissions-microg.xml build-${ARCH}/system/etc/permissions/
             cp new_permissions/sysconfig-microg.xml build-${ARCH}/system/etc/sysconfig/
 
-            # Inyectar update-prebash.json o update-prebash32.json dentro del module.prop del ZIP
             JSON_FILE=$([ "$ARCH" == "32" ] && echo "update-prebash32.json" || echo "update-prebash.json")
             sed -i -e '$a\' build-${ARCH}/module.prop
             
