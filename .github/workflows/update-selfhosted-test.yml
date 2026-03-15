@@ -1,0 +1,271 @@
+name: Actualizar MagiskMicroGApps (Windows Bash)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */12 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 📥 Checkout del repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📦 Descargar APKs y Validar
+        id: download_apks
+        run: |
+          mkdir -p new_apks
+          
+          download_apk() {
+            local name=$1
+            local dest=$2
+            local url=$3
+            echo "Descargando $name..."
+            curl -sL -A "Mozilla/5.0" -o "$dest" "$url" || true
+            if [ ! -s "$dest" ]; then
+              echo "⚠️ Advertencia: Descarga fallida o archivo vacío para $name."
+              rm -f "$dest"
+            else
+              echo "✅ $name descargado correctamente."
+            fi
+          }
+
+          # 1. MicroG (GmsCore)
+          MICROG_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.google.android.gms") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
+          download_apk "MicroG" "new_apks/GmsCore.apk" "$MICROG_URL"
+
+          # 2. MicroG Companion
+          COMPANION_URL=$(curl -s "https://api.github.com/repos/microg/GmsCore/releases/latest" | jq -r '.assets[] | select(.name | startswith("com.android.vending") and (contains("-hw") | not) and endswith(".apk")) | .browser_download_url' | head -n 1)
+          [ -n "$COMPANION_URL" ] && download_apk "MicroG Companion" "new_apks/Companion.apk" "$COMPANION_URL"
+          
+          # 3. Aurora Store
+          AURORA_API=$(curl -s "https://gitlab.com/api/v4/projects/6922885/releases")
+          UPLOAD_PATH=$(echo "$AURORA_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
+          if [ -n "$UPLOAD_PATH" ]; then
+            AURORA_URL="https://gitlab.com/-/project/6922885${UPLOAD_PATH}"
+          else
+            AURORA_URL=$(echo "$AURORA_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
+          fi
+          download_apk "Aurora Store" "new_apks/AuroraStore.apk" "$AURORA_URL"
+
+          # 4. Aurora Services
+          CURRENT_SVC_VER="1.1.1"
+          SVC_API=$(curl -s "https://gitlab.com/api/v4/projects/8363046/releases")
+          LATEST_SVC_VER=$(echo "$SVC_API" | jq -r '.[0].tag_name' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "$CURRENT_SVC_VER")
+          
+          if [ "$(printf '%s\n' "$CURRENT_SVC_VER" "$LATEST_SVC_VER" | sort -V | tail -n1)" != "$CURRENT_SVC_VER" ]; then
+            SVC_URL=$(echo "$SVC_API" | jq -r '.[0].assets.links[]? | select(.url | test("(?i)\\.apk$")) | .url' | head -n 1)
+            [ -z "$SVC_URL" ] && SVC_URL="https://gitlab.com/-/project/8363046"$(echo "$SVC_API" | jq -r '.[0].description' | grep -oP '/uploads/[a-zA-Z0-9]+/[^)]+\.apk' | head -n 1)
+            download_apk "Aurora Services" "new_apks/AuroraServices.apk" "$SVC_URL"
+          else
+            download_apk "Aurora Services (Estático)" "new_apks/AuroraServices.apk" "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk"
+          fi
+
+          # 5. FakeGApps
+          FAKEGAPPS_JSON=$(curl -sL "https://api.github.com/repos/whew-inc/FakeGApps/releases/latest")
+          FAKEGAPPS_URL=$(echo "$FAKEGAPPS_JSON" | jq -r '.assets[] | select(.name|test(".*\\.apk$")) | .browser_download_url' | head -n 1)
+          [ -z "$FAKEGAPPS_URL" ] || [ "$FAKEGAPPS_URL" == "null" ] && FAKEGAPPS_URL="https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk"
+          download_apk "FakeGApps" "new_apks/FakeGApps.apk" "$FAKEGAPPS_URL"
+
+          # 6. GsfProxy
+          GSFPROXY_URL=$(curl -s "https://api.github.com/repos/microg/GsfProxy/releases/latest" | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
+          [ -z "$GSFPROXY_URL" ] || [ "$GSFPROXY_URL" == "null" ] && GSFPROXY_URL="https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk"
+          download_apk "GsfProxy" "new_apks/GsfProxy.apk" "$GSFPROXY_URL"
+
+          # 7. Google Sync Adapters (Desde dreamwhite)
+          CALENDAR_SYNC_URL="https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
+          download_apk "Google Calendar Sync" "new_apks/GoogleCalendarSync.apk" "$CALENDAR_SYNC_URL"
+
+          CONTACTS_SYNC_URL="https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
+          download_apk "Google Contacts Sync" "new_apks/GoogleContactsSync.apk" "$CONTACTS_SYNC_URL"
+
+      - name: 🚀 Optimizar APKs (Zipalign de Windows ejecutado en Bash)
+        run: |
+          echo "Alineando APKs para mejor rendimiento de RAM..."
+          for apk in new_apks/*.apk; do
+            if [ -f "$apk" ]; then
+              "C:/AndroidSDK/build-tools/34.0.0/zipalign.exe" -p -v 4 "$apk" "${apk%.apk}-aligned.apk" || true
+              mv "${apk%.apk}-aligned.apk" "$apk" || true
+            fi
+          done
+
+      - name: 🔍 Obtener versiones y generar Changelog Base
+        id: versions
+        run: |
+          [ -f module.prop ] || touch module.prop
+
+          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
+          NEW_VC=$((OLD_VC + 1))
+          
+          OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          NEW_VER=$(echo "$OLD_VER" | awk -F. '{ 
+            major=$1; minor=$2; 
+            if(minor=="") minor=0; minor++; 
+            if(minor>=10) { major++; minor=0; } 
+            print major"."minor 
+          }')
+          FINAL_TAG="A${NEW_VER}-MicroG"
+
+          echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
+          echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
+
+          sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop || echo "versionCode=$NEW_VC" >> module.prop
+          sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop || echo "version=$FINAL_TAG" >> module.prop
+          sed -i 's/^id=.*/id=MicroGiskGApps/' module.prop || echo "id=MicroGiskGApps" >> module.prop
+          sed -i 's/^name=.*/name=MicroGiskGApps/' module.prop || echo "name=MicroGiskGApps" >> module.prop
+
+          cat <<EOF > changelog.md
+          ### Changelog / Registro de cambios
+          #### Núcleo (Core)
+          - **MicroG (GmsCore)**: Actualizado
+          - **MicroG Companion**: Actualizado
+          - **GsfProxy**: Actualizado
+          - **FakeGApps**: Actualizado
+          
+          #### Tienda y Servicios (Store & Services)
+          - **Aurora Store**: Actualizado
+          - **Aurora Services**: Actualizado
+          - **Google Contacts Sync**: Actualizado (dreamwhite)
+          - **Google Calendar Sync**: Actualizado (dreamwhite)
+          EOF
+
+      - name: 🔐 Generar Archivos de Permisos Totales (XML)
+        run: |
+          mkdir -p new_permissions
+          
+          cat <<EOF > new_permissions/privapp-permissions-microg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <permissions>
+              <privapp-permissions package="com.google.android.gms">
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+                  <permission name="android.permission.UPDATE_APP_OPS_STATS"/>
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.SUBSTITUTE_SHARE_TARGET_APP"/>
+                  <permission name="android.permission.ALLOCATE_AGGRESSIVE"/>
+                  <permission name="android.permission.REBOOT"/>
+                  <permission name="android.permission.MODIFY_PHONE_STATE"/>
+              </privapp-permissions>
+              <privapp-permissions package="com.android.vending">
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.BATTERY_STATS"/>
+                  <permission name="android.permission.UPDATE_DEVICE_STATS"/>
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+                  <permission name="android.permission.PACKAGE_USAGE_STATS"/>
+                  <permission name="android.permission.GET_APP_OPS_STATS"/>
+              </privapp-permissions>
+              <privapp-permissions package="com.aurora.store">
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+                  <permission name="android.permission.BATTERY_STATS"/>
+              </privapp-permissions>
+              <privapp-permissions package="com.aurora.services">
+                  <permission name="android.permission.INSTALL_PACKAGES"/>
+                  <permission name="android.permission.DELETE_PACKAGES"/>
+                  <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+              </privapp-permissions>
+          </permissions>
+          EOF
+
+          cat <<EOF > new_permissions/sysconfig-microg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <config>
+              <allow-in-power-save package="com.google.android.gms"/>
+              <allow-in-power-save package="com.android.vending"/>
+              <allow-in-power-save package="com.aurora.store"/>
+              <allow-in-power-save package="com.aurora.services"/>
+              <allow-in-data-usage-save package="com.google.android.gms"/>
+              <allow-unthrottled-location package="com.google.android.gms"/>
+              <allow-ignore-location-settings package="com.google.android.gms"/>
+          </config>
+          EOF
+
+      - name: 🛠️ Construir Zips (32-bit y 64-bit)
+        run: |
+          git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
+          
+          for ARCH in 32 64; do
+            cp -r mmt_template/ build-${ARCH}/
+            rm -rf build-${ARCH}/.git build-${ARCH}/.github build-${ARCH}/README.md build-${ARCH}/.gitignore build-${ARCH}/changelog.md build-${ARCH}/LICENSE build-${ARCH}/update.json build-${ARCH}/install.zip build-${ARCH}/zygisk
+            find build-${ARCH} -type f -iname "*placeholder*" -delete
+            
+            mkdir -p build-${ARCH}/system/priv-app/GmsCore build-${ARCH}/system/priv-app/Companion build-${ARCH}/system/priv-app/FakeGApps build-${ARCH}/system/priv-app/AuroraServices build-${ARCH}/system/priv-app/AuroraStore build-${ARCH}/system/app/GsfProxy build-${ARCH}/system/app/GoogleContactsSync build-${ARCH}/system/app/GoogleCalendarSync build-${ARCH}/system/etc/permissions build-${ARCH}/system/etc/sysconfig
+            
+            cp module.prop build-${ARCH}/
+            [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
+            [ -d common ] && cp -r common build-${ARCH}/
+            [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
+            
+            [ -f new_apks/GmsCore.apk ] && cp -f new_apks/GmsCore.apk build-${ARCH}/system/priv-app/GmsCore/GmsCore.apk
+            [ -f new_apks/Companion.apk ] && cp -f new_apks/Companion.apk build-${ARCH}/system/priv-app/Companion/Companion.apk
+            [ -f new_apks/FakeGApps.apk ] && cp -f new_apks/FakeGApps.apk build-${ARCH}/system/priv-app/FakeGApps/FakeGApps.apk
+            [ -f new_apks/AuroraStore.apk ] && cp -f new_apks/AuroraStore.apk build-${ARCH}/system/priv-app/AuroraStore/AuroraStore.apk
+            [ -f new_apks/AuroraServices.apk ] && cp -f new_apks/AuroraServices.apk build-${ARCH}/system/priv-app/AuroraServices/AuroraServices.apk
+            [ -f new_apks/GsfProxy.apk ] && cp -f new_apks/GsfProxy.apk build-${ARCH}/system/app/GsfProxy/GsfProxy.apk
+            [ -f new_apks/GoogleContactsSync.apk ] && cp -f new_apks/GoogleContactsSync.apk build-${ARCH}/system/app/GoogleContactsSync/GoogleContactsSync.apk
+            [ -f new_apks/GoogleCalendarSync.apk ] && cp -f new_apks/GoogleCalendarSync.apk build-${ARCH}/system/app/GoogleCalendarSync/GoogleCalendarSync.apk
+
+            cp new_permissions/privapp-permissions-microg.xml build-${ARCH}/system/etc/permissions/
+            cp new_permissions/sysconfig-microg.xml build-${ARCH}/system/etc/sysconfig/
+
+            JSON_FILE=$([ "$ARCH" == "32" ] && echo "update32.json" || echo "update.json")
+            sed -i -e '$a\' build-${ARCH}/module.prop
+            
+            if grep -q "^updateJson=" build-${ARCH}/module.prop; then
+              sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
+            else
+              echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
+            fi
+
+            cd build-${ARCH} && zip -rq ../MicroGiskGApps-${ARCH}.zip . && cd ..
+          done
+
+      - name: 📝 Generar update.jsons y Commitear cambios al Repo
+        run: |
+          cat <<EOF > update.json
+          {
+            "version": "${{ env.FINAL_TAG }}",
+            "versionCode": ${{ env.NEW_VC }},
+            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-64.zip",
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+          }
+          EOF
+
+          cat <<EOF > update32.json
+          {
+            "version": "${{ env.FINAL_TAG }}",
+            "versionCode": ${{ env.NEW_VC }},
+            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip",
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog.md"
+          }
+          EOF
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add module.prop update.json update32.json changelog.md
+          git commit -m "🚀 Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
+          git push origin HEAD:main
+
+      - name: 🚀 Publicar Release en GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.FINAL_TAG }}
+          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
+          body_path: changelog.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            MicroGiskGApps-32.zip
+            MicroGiskGApps-64.zip
