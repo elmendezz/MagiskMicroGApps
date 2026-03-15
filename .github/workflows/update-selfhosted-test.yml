@@ -234,7 +234,7 @@ jobs:
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         run: |
-          cat <<EOF > update.json
+          cat <<EOF > update-prebash.json
           {
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
@@ -243,7 +243,7 @@ jobs:
           }
           EOF
 
-          cat <<EOF > update32.json
+          cat <<EOF > update-prebash32.json
           {
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
