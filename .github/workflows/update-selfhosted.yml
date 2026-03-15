@@ -82,7 +82,7 @@ jobs:
                           Remove-Item $path -Force
                           return "[Error] $name descargo 0 bytes o corrupto."
                       }
-                      return "[OK] $name descargado exitosamente en $path."
+                      return "[OK] $name descargado exitosamente."
                   } catch {
                       return "[Error] Fallo en $name : $($Error[0])"
                   }
@@ -92,11 +92,23 @@ jobs:
           # 7. Mientras se descarga todo lo anterior, extraemos las Sync Apps
           Write-Host "`n[Info] Procesando Google Sync Apps simultaneamente..."
           $repo = "${{ github.repository }}"
+          $zipUrl = $null
+          
           try {
               $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -ErrorAction Stop
               $zipUrl = ($latestRelease.assets | Where-Object { $_.name -eq "MicroGiskGApps-32.zip" }).browser_download_url
-              
-              if ($zipUrl) {
+          } catch {
+              Write-Host "[Aviso] No se encontro un release anterior valido en este repositorio."
+          }
+
+          # LÓGICA DE FALLBACK (Respaldo)
+          if (-not $zipUrl) {
+              Write-Host "[Info] Usando URL de respaldo (elmendezz) para las Sync Apps..."
+              $zipUrl = "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A26.3-MicroG/MicroGiskGApps-32.zip"
+          }
+
+          if ($zipUrl) {
+              try {
                   $ProgressPreference = 'SilentlyContinue'
                   Invoke-WebRequest -Uri $zipUrl -OutFile "latest_base.zip" -UseBasicParsing
                   Expand-Archive -Path "latest_base.zip" -DestinationPath "extracted_base" -Force
@@ -111,9 +123,9 @@ jobs:
                   }
                   Remove-Item "latest_base.zip" -Force
                   Remove-Item "extracted_base" -Recurse -Force
+              } catch {
+                  Write-Host "[Error] Fallo al descargar o extraer el ZIP de respaldo: $($Error[0])"
               }
-          } catch {
-              Write-Host "[Aviso] No hay un release anterior valido para Sync Apps. Se omitira."
           }
 
           # --- ESPERAR A QUE TERMINEN LAS DESCARGAS ---
