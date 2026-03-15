@@ -104,10 +104,15 @@ jobs:
         run: |
           [ -f module.prop ] || touch module.prop
 
-          OLD_VC=$(grep '^versionCode=' module.prop | cut -d= -f2 | tr -d ' ' || echo "1")
+          # SOLUCIÓN DE LECTURA SEGURA: Evita que el script aborte en errores
+          OLD_VC=$(grep '^versionCode=' module.prop 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo "1")
+          if [ -z "$OLD_VC" ]; then OLD_VC="1"; fi
+          
           NEW_VC=$((OLD_VC + 1))
           
-          OLD_VER=$(grep '^version=' module.prop | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          OLD_VER=$(grep '^version=' module.prop 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          if [ -z "$OLD_VER" ]; then OLD_VER="13.0"; fi
+          
           NEW_VER=$(echo "$OLD_VER" | awk -F. '{ 
             major=$1; minor=$2; 
             if(minor=="") minor=0; minor++; 
@@ -116,8 +121,9 @@ jobs:
           }')
           FINAL_TAG="A${NEW_VER}-PREBASH"
 
-          echo "NEW_VC=$NEW_VC" >> $GITHUB_ENV
-          echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
+          # SOLUCIÓN DEL ERROR TAG: Envolver GITHUB_ENV en comillas para que bash de Windows no lo rompa
+          echo "NEW_VC=$NEW_VC" >> "$GITHUB_ENV"
+          echo "FINAL_TAG=$FINAL_TAG" >> "$GITHUB_ENV"
 
           sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop || echo "versionCode=$NEW_VC" >> module.prop
           sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop || echo "version=$FINAL_TAG" >> module.prop
@@ -257,8 +263,14 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update-prebash.json update-prebash32.json changelog-prebash.md
-          git commit -m "🚀 PREBASH Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})" || echo "Nothing to commit"
-          git push origin HEAD:main
+          
+          # SOLUCION AL ERROR DE COMMIT EN BASH: Comprueba git status primero
+          if [[ -n $(git status --porcelain) ]]; then
+            git commit -m "🚀 PREBASH Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})"
+            git push origin HEAD:main
+          else
+            echo "Nothing to commit"
+          fi
 
       - name: 🚀 Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
@@ -266,7 +278,7 @@ jobs:
           tag_name: ${{ env.FINAL_TAG }}
           name: "${{ env.FINAL_TAG }} - PREBASH Build"
           body_path: changelog-prebash.md
-          prerelease: true # <- ESTO MARCA EL RELEASE COMO PRERELEASE OFICIAL EN GITHUB
+          prerelease: true
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
