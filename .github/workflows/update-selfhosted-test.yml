@@ -99,18 +99,47 @@ jobs:
             fi
           done
 
-      - name: 🔍 Obtener versiones y generar Changelog Base
+      - name: 🔍 Obtener versiones (AAPT) y generar Changelog Base
         id: versions
         run: |
-          [ -f module.prop ] || touch module.prop
+          AAPT="C:/AndroidSDK/build-tools/34.0.0/aapt.exe"
+          
+          # Función segura para obtener versión en Bash usando AAPT
+          get_apk_version() {
+            local apk_path=$1
+            if [ ! -f "$apk_path" ]; then
+              echo "No encontrado"
+              return
+            fi
+            
+            local version=$("$AAPT" dump badging "$apk_path" 2>/dev/null | grep "versionName=" | sed -E "s/.*versionName='([^']+)'.*/\1/")
+            if [ -n "$version" ]; then
+              echo "$version"
+            else
+              echo "Actualizado"
+            fi
+          }
 
-          # SOLUCIÓN DE LECTURA SEGURA: Evita que el script aborte en errores
-          OLD_VC=$(grep '^versionCode=' module.prop 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo "1")
+          echo "[Info] Extrayendo versiones de las APKs con AAPT..."
+          VER_MICROG=$(get_apk_version "new_apks/GmsCore.apk")
+          VER_COMPANION=$(get_apk_version "new_apks/Companion.apk")
+          VER_AURORA=$(get_apk_version "new_apks/AuroraStore.apk")
+          VER_AURORASVC=$(get_apk_version "new_apks/AuroraServices.apk")
+          VER_FAKEGAPPS=$(get_apk_version "new_apks/FakeGApps.apk")
+          VER_GSFPROXY=$(get_apk_version "new_apks/GsfProxy.apk")
+          VER_CONTACTS=$(get_apk_version "new_apks/GoogleContactsSync.apk")
+          VER_CALENDAR=$(get_apk_version "new_apks/GoogleCalendarSync.apk")
+
+          # Archivo de propiedades específico para prebash
+          PROP_FILE="module-prebash.prop"
+          [ -f "$PROP_FILE" ] || echo -e "id=MicroGiskGApps-PreBash\nname=MicroGiskGApps (PreBash)\nversion=A13.0-PREBASH\nversionCode=1\nauthor=TuNombre\ndescription=Modulo MicroG PreBash." > "$PROP_FILE"
+
+          OLD_VC=$(grep '^versionCode=' "$PROP_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' \r' || echo "1")
           if [ -z "$OLD_VC" ]; then OLD_VC="1"; fi
           
           NEW_VC=$((OLD_VC + 1))
           
-          OLD_VER=$(grep '^version=' module.prop 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
+          OLD_VER=$(grep '^version=' "$PROP_FILE" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 || echo "13.0")
           if [ -z "$OLD_VER" ]; then OLD_VER="13.0"; fi
           
           NEW_VER=$(echo "$OLD_VER" | awk -F. '{ 
@@ -121,29 +150,32 @@ jobs:
           }')
           FINAL_TAG="A${NEW_VER}-PREBASH"
 
-          # SOLUCIÓN DEL ERROR TAG: Envolver GITHUB_ENV en comillas para que bash de Windows no lo rompa
           echo "NEW_VC=$NEW_VC" >> "$GITHUB_ENV"
           echo "FINAL_TAG=$FINAL_TAG" >> "$GITHUB_ENV"
 
-          sed -i "s/^versionCode=.*/versionCode=$NEW_VC/" module.prop || echo "versionCode=$NEW_VC" >> module.prop
-          sed -i "s/^version=.*/version=$FINAL_TAG/" module.prop || echo "version=$FINAL_TAG" >> module.prop
-          sed -i 's/^id=.*/id=MicroGiskGApps/' module.prop || echo "id=MicroGiskGApps" >> module.prop
-          sed -i 's/^name=.*/name=MicroGiskGApps (PreBash)/' module.prop || echo "name=MicroGiskGApps (PreBash)" >> module.prop
+          # Actualizar el archivo de propiedades
+          sed -i -E "s/^versionCode=.*/versionCode=$NEW_VC/" "$PROP_FILE"
+          sed -i -E "s/^version=.*/version=$FINAL_TAG/" "$PROP_FILE"
+          sed -i -E 's/^id=.*/id=MicroGiskGApps-PreBash/' "$PROP_FILE"
+          sed -i -E 's/^name=.*/name=MicroGiskGApps (PreBash)/' "$PROP_FILE"
 
+          # Generar changelogs inyectando las versiones leídas
           cat <<EOF > changelog-prebash.md
           ### Changelog / Registro de cambios (PREBASH)
           #### Núcleo (Core)
-          - **MicroG (GmsCore)**: Actualizado
-          - **MicroG Companion**: Actualizado
-          - **GsfProxy**: Actualizado
-          - **FakeGApps**: Actualizado
+          - **MicroG (GmsCore)**: $VER_MICROG
+          - **MicroG Companion**: $VER_COMPANION
+          - **GsfProxy**: $VER_GSFPROXY
+          - **FakeGApps**: $VER_FAKEGAPPS
           
           #### Tienda y Servicios (Store & Services)
-          - **Aurora Store**: Actualizado
-          - **Aurora Services**: Actualizado
-          - **Google Contacts Sync**: Actualizado (dreamwhite)
-          - **Google Calendar Sync**: Actualizado (dreamwhite)
+          - **Aurora Store**: $VER_AURORA
+          - **Aurora Services**: $VER_AURORASVC
+          - **Google Contacts Sync**: $VER_CONTACTS (dreamwhite)
+          - **Google Calendar Sync**: $VER_CALENDAR (dreamwhite)
           EOF
+          
+          sed 's/(PREBASH)/(PREBASH 32-bit)/g' changelog-prebash.md > changelog-prebash32.md
 
       - name: 🔐 Generar Archivos de Permisos Totales (XML)
         run: |
@@ -209,7 +241,8 @@ jobs:
             
             mkdir -p build-${ARCH}/system/priv-app/GmsCore build-${ARCH}/system/priv-app/Companion build-${ARCH}/system/priv-app/FakeGApps build-${ARCH}/system/priv-app/AuroraServices build-${ARCH}/system/priv-app/AuroraStore build-${ARCH}/system/app/GsfProxy build-${ARCH}/system/app/GoogleContactsSync build-${ARCH}/system/app/GoogleCalendarSync build-${ARCH}/system/etc/permissions build-${ARCH}/system/etc/sysconfig
             
-            cp module.prop build-${ARCH}/
+            # Copiar el prop prebash al build renombrandolo a module.prop
+            cp module-prebash.prop build-${ARCH}/module.prop
             [ -f uninstall.sh ] && cp uninstall.sh build-${ARCH}/
             [ -d common ] && cp -r common build-${ARCH}/
             [ -d system ] && cp -r system/* build-${ARCH}/system/ || true
@@ -226,12 +259,12 @@ jobs:
             cp new_permissions/privapp-permissions-microg.xml build-${ARCH}/system/etc/permissions/
             cp new_permissions/sysconfig-microg.xml build-${ARCH}/system/etc/sysconfig/
 
-            # Aquí se inyecta update-prebash.json o update-prebash32.json dentro del module.prop del ZIP
+            # Inyectar update-prebash.json o update-prebash32.json dentro del module.prop del ZIP
             JSON_FILE=$([ "$ARCH" == "32" ] && echo "update-prebash32.json" || echo "update-prebash.json")
             sed -i -e '$a\' build-${ARCH}/module.prop
             
             if grep -q "^updateJson=" build-${ARCH}/module.prop; then
-              sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
+              sed -i -E "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}|" build-${ARCH}/module.prop
             else
               echo "updateJson=https://raw.githubusercontent.com/${{ github.repository }}/main/${JSON_FILE}" >> build-${ARCH}/module.prop
             fi
@@ -239,7 +272,7 @@ jobs:
             cd build-${ARCH} && zip -rq ../MicroGiskGApps-${ARCH}.zip . && cd ..
           done
 
-      - name: 📝 Generar update.jsons y Commitear cambios al Repo
+      - name: 📝 Generar update.jsons (Sin commitear aún)
         run: |
           cat <<EOF > update-prebash.json
           {
@@ -255,24 +288,11 @@ jobs:
             "version": "${{ env.FINAL_TAG }}",
             "versionCode": ${{ env.NEW_VC }},
             "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ env.FINAL_TAG }}/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog-prebash.md"
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/changelog-prebash32.md"
           }
           EOF
 
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git add module.prop update-prebash.json update-prebash32.json changelog-prebash.md
-          
-          # SOLUCION AL ERROR DE COMMIT EN BASH: Comprueba git status primero
-          if [[ -n $(git status --porcelain) ]]; then
-            git commit -m "🚀 PREBASH Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})"
-            git push origin HEAD:main
-          else
-            echo "Nothing to commit"
-          fi
-
-      - name: 🚀 Publicar Release en GitHub
+      - name: 🚀 Publicar Pre-Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
@@ -283,3 +303,25 @@ jobs:
           files: |
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
+
+      - name: 💾 Commitear cambios al Repo (Solo si la Release fue exitosa)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add module-prebash.prop update-prebash.json update-prebash32.json changelog-prebash.md changelog-prebash32.md
+          
+          if [[ -n $(git status --porcelain) ]]; then
+            git commit -m "🚀 PREBASH Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})"
+            git push origin HEAD:main
+            echo "[OK] Cambios guardados en el repositorio."
+          else
+            echo "[Info] Nothing to commit."
+          fi
+
+      - name: 🧹 Limpiar archivos temporales y basura
+        if: always()
+        run: |
+          echo "[Info] Limpiando entorno de trabajo en Bash..."
+          rm -rf new_apks new_permissions mmt_template build-32 build-64 MicroGiskGApps-32.zip MicroGiskGApps-64.zip
+          echo "[OK] Limpieza finalizada."
