@@ -61,7 +61,6 @@ jobs:
           $contactsUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
           $calendarUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
 
-          # Obtenemos la ruta absoluta del workspace para el paralelismo
           $workspace = Get-Location
 
           # --- INICIO DE DESCARGAS EN PARALELO ---
@@ -95,7 +94,6 @@ jobs:
               } -ArgumentList $dl.Name, $dl.OutPath, $dl.Url
           }
 
-          # --- ESPERAR A QUE TERMINEN LAS DESCARGAS ---
           Write-Host "`n[Info] Esperando a que finalicen las descargas de APKs..."
           Wait-Job $jobs | Out-Null
           Receive-Job $jobs | Write-Host
@@ -112,14 +110,19 @@ jobs:
               )
           )
 
-      - name: 🔍 Obtener versiones y generar Changelog Base
+      - name: 🔍 Obtener versiones y generar Changelog Base (Separado del Original)
         id: vars
         shell: powershell
         run: |
-          $modulePath = "module.prop"
-          if (-not (Test-Path $modulePath)) { New-Item $modulePath -ItemType File | Out-Null }
+          # Usamos un archivo .prop completamente separado
+          $modulePrePath = "module-pre.prop"
           
-          $content = Get-Content $modulePath
+          # Si no existe, creamos uno base que no tenga nada que ver con el original
+          if (-not (Test-Path $modulePrePath)) { 
+              "id=MicroGiskGApps-Pre`nname=MicroGiskGApps (Pre)`nversion=A13.0-PRE`nversionCode=1`nauthor=TuNombre`ndescription=Modulo MicroG Pre-Release independiente." | Set-Content $modulePrePath 
+          }
+          
+          $content = Get-Content $modulePrePath
           $oldVc = 1
           $oldVer = "13.0"
           
@@ -143,24 +146,25 @@ jobs:
           $hasId = $false; $hasName = $false; $hasVersion = $false; $hasVc = $false
           
           foreach ($line in $content) {
-              if ($line -match "^id=") { $newContent += "id=MicroGiskGApps"; $hasId = $true }
+              if ($line -match "^id=") { $newContent += "id=MicroGiskGApps-Pre"; $hasId = $true }
               elseif ($line -match "^name=") { $newContent += "name=MicroGiskGApps (Pre)"; $hasName = $true }
               elseif ($line -match "^version=") { $newContent += "version=$newVer"; $hasVersion = $true }
               elseif ($line -match "^versionCode=") { $newContent += "versionCode=$newVc"; $hasVc = $true }
               else { $newContent += $line }
           }
           
-          if (-not $hasId) { $newContent += "id=MicroGiskGApps" }
+          if (-not $hasId) { $newContent += "id=MicroGiskGApps-Pre" }
           if (-not $hasName) { $newContent += "name=MicroGiskGApps (Pre)" }
           if (-not $hasVersion) { $newContent += "version=$newVer" }
           if (-not $hasVc) { $newContent += "versionCode=$newVc" }
           
-          $newContent | Set-Content $modulePath
+          $newContent | Set-Content $modulePrePath
           
           echo "NEW_VC=$newVc" >> $env:GITHUB_ENV
           echo "FINAL_TAG=$newVer" >> $env:GITHUB_ENV
           
-          $changelog = @"
+          # Generar changelogs separados
+          $changelogBase = @"
           ### Changelog / Registro de cambios (Pre-release)
           #### Nucleo (Core)
           - **MicroG (GmsCore)**: Actualizado
@@ -174,7 +178,11 @@ jobs:
           - **Google Contacts Sync**: Actualizado (dreamwhite)
           - **Google Calendar Sync**: Actualizado (dreamwhite)
           "@
-          $changelog | Set-Content "changelog-pre.md"
+          
+          $changelogBase | Set-Content "changelog-pre.md"
+          
+          $changelog32 = $changelogBase -replace "\(Pre-release\)", "(Pre-release 32-bit)"
+          $changelog32 | Set-Content "changelog-pre32.md"
 
       - name: 🔐 Generar Archivos de Permisos Totales (XML)
         shell: powershell
@@ -270,7 +278,9 @@ jobs:
                   New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
               }
               
-              Copy-Item "module.prop" -Destination $buildDir -Force
+              # Copiamos module-pre.prop pero con el nombre module.prop dentro del ZIP (Magisk lo requiere)
+              Copy-Item "module-pre.prop" -Destination "$buildDir\module.prop" -Force
+              
               if (Test-Path "uninstall.sh") { Copy-Item "uninstall.sh" -Destination $buildDir -Force }
               if (Test-Path "common") { Copy-Item "common\*" -Destination "$buildDir\common\" -Recurse -Force }
               if (Test-Path "system") { Copy-Item "system\*" -Destination "$buildDir\system\" -Recurse -Force }
@@ -299,7 +309,7 @@ jobs:
               Copy-Item "new_permissions\privapp-permissions-microg.xml" -Destination "$buildDir\system\etc\permissions\" -Force
               Copy-Item "new_permissions\sysconfig-microg.xml" -Destination "$buildDir\system\etc\sysconfig\" -Force
               
-              # Aquí se asigna update-pre32.json o update-pre.json a module.prop dentro del ZIP
+              # Asignamos el JSON correcto al module.prop *DENTRO* del ZIP
               $jsonFile = if ($arch -eq "32") { "update-pre32.json" } else { "update-pre.json" }
               $repo = "${{ github.repository }}"
               $modPropPath = "$buildDir\module.prop"
@@ -341,12 +351,13 @@ jobs:
           "@
           $updateJson | Set-Content "update-pre.json"
           
+          # Actualizado para apuntar al changelog de 32 bits
           $update32Json = @"
           {
             "version": "$tag",
             "versionCode": $vc,
             "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre.md"
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre32.md"
           }
           "@
           $update32Json | Set-Content "update-pre32.json"
@@ -354,9 +365,9 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add module.prop update-pre.json update-pre32.json changelog-pre.md
+          # Hacemos commit exclusivamente de los archivos -pre y -pre32
+          git add module-pre.prop update-pre.json update-pre32.json changelog-pre.md changelog-pre32.md
           
-          # SOLUCION AL ERROR || DE POWERSHELL: Usamos if (git status)
           $status = git status --porcelain
           if ($status) {
               git commit -m "🚀 Pre-Release Update to $tag (VersionCode: $vc)"
