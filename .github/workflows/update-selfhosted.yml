@@ -21,26 +21,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 📦 Descargar APKs y Validar (Powershell nativo - Paralelo)
+      - name: 📁 Preparar entorno temporal
         shell: powershell
         run: |
-          if (-not (Test-Path "new_apks")) { New-Item -ItemType Directory -Path "new_apks" | Out-Null }
+          if (Test-Path "build_temp") { Remove-Item -Path "build_temp" -Recurse -Force }
+          New-Item -ItemType Directory -Path "build_temp" | Out-Null
+          New-Item -ItemType Directory -Path "build_temp\new_apks" | Out-Null
+          New-Item -ItemType Directory -Path "build_temp\new_permissions" | Out-Null
 
+      - name: 📦 Descargar APKs y Validar (Paralelo)
+        shell: powershell
+        run: |
           Write-Host "[Info] Obteniendo URLs de descarga..."
           
           # 1. MicroG
           $microgUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GmsCore/releases/latest').assets | Where-Object { $_.name -like 'com.google.android.gms*' -and $_.name -notlike '*-hw*' } | Select-Object -ExpandProperty browser_download_url -First 1
-          
           # 2. Companion
           $companionUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GmsCore/releases/latest').assets | Where-Object { $_.name -like 'com.android.vending*' -and $_.name -notlike '*-hw*' } | Select-Object -ExpandProperty browser_download_url -First 1
-          
           # 3. Aurora Store
           $auroraApi = Invoke-RestMethod 'https://gitlab.com/api/v4/projects/6922885/releases'
           $latestAurora = $auroraApi[0]
           $auroraUrl = $null
           if ($latestAurora.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') { $auroraUrl = 'https://gitlab.com/-/project/6922885' + $matches[1] } 
           elseif ($latestAurora.assets.links) { $auroraUrl = ($latestAurora.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1) }
-
           # 4. Aurora Services
           $svcApi = Invoke-RestMethod 'https://gitlab.com/api/v4/projects/8363046/releases'
           $latestSvc = $svcApi[0]
@@ -48,34 +51,30 @@ jobs:
           if ($latestSvc.assets.links) { $svcUrl = ($latestSvc.assets.links | Where-Object { $_.url -match '\.apk$' } | Select-Object -ExpandProperty url -First 1) }
           if (-not $svcUrl -and $latestSvc.description -match '(/uploads/[a-zA-Z0-9]+/[^\s)]+\.apk)') { $svcUrl = 'https://gitlab.com/-/project/8363046' + $matches[1] }
           if (-not $svcUrl) { $svcUrl = "https://gitlab.com/-/project/8363046/uploads/c22e95975571e9db143567690777a56e/AuroraServices_v1.1.1.apk" }
-
           # 5. FakeGApps
           $fakeGappsUrl = (Invoke-RestMethod 'https://api.github.com/repos/whew-inc/FakeGApps/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $fakeGappsUrl) { $fakeGappsUrl = "https://github.com/whew-inc/FakeGApps/releases/download/6.6/app-release.apk" }
-
           # 6. GsfProxy
           $gsfProxyUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GsfProxy/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
-
-          # 7. Google Sync Adapters (Desde dreamwhite)
+          # 7. Google Sync Adapters
           $contactsUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
           $calendarUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
 
           $workspace = Get-Location
 
-          # --- INICIO DE DESCARGAS EN PARALELO ---
           $downloads = @(
-              @{ Name = "MicroG"; OutPath = "$workspace\new_apks\GmsCore.apk"; Url = $microgUrl },
-              @{ Name = "Companion"; OutPath = "$workspace\new_apks\Companion.apk"; Url = $companionUrl },
-              @{ Name = "Aurora Store"; OutPath = "$workspace\new_apks\AuroraStore.apk"; Url = $auroraUrl },
-              @{ Name = "Aurora Services"; OutPath = "$workspace\new_apks\AuroraServices.apk"; Url = $svcUrl },
-              @{ Name = "FakeGApps"; OutPath = "$workspace\new_apks\FakeGApps.apk"; Url = $fakeGappsUrl },
-              @{ Name = "GsfProxy"; OutPath = "$workspace\new_apks\GsfProxy.apk"; Url = $gsfProxyUrl },
-              @{ Name = "Google Contacts Sync"; OutPath = "$workspace\new_apks\GoogleContactsSync.apk"; Url = $contactsUrl },
-              @{ Name = "Google Calendar Sync"; OutPath = "$workspace\new_apks\GoogleCalendarSync.apk"; Url = $calendarUrl }
+              @{ Name = "MicroG"; OutPath = "$workspace\build_temp\new_apks\GmsCore.apk"; Url = $microgUrl },
+              @{ Name = "Companion"; OutPath = "$workspace\build_temp\new_apks\Companion.apk"; Url = $companionUrl },
+              @{ Name = "Aurora Store"; OutPath = "$workspace\build_temp\new_apks\AuroraStore.apk"; Url = $auroraUrl },
+              @{ Name = "Aurora Services"; OutPath = "$workspace\build_temp\new_apks\AuroraServices.apk"; Url = $svcUrl },
+              @{ Name = "FakeGApps"; OutPath = "$workspace\build_temp\new_apks\FakeGApps.apk"; Url = $fakeGappsUrl },
+              @{ Name = "GsfProxy"; OutPath = "$workspace\build_temp\new_apks\GsfProxy.apk"; Url = $gsfProxyUrl },
+              @{ Name = "Google Contacts Sync"; OutPath = "$workspace\build_temp\new_apks\GoogleContactsSync.apk"; Url = $contactsUrl },
+              @{ Name = "Google Calendar Sync"; OutPath = "$workspace\build_temp\new_apks\GoogleCalendarSync.apk"; Url = $calendarUrl }
           )
 
-          Write-Host "`n[Info] Lanzando descargas en segundo plano con rutas absolutas..."
+          Write-Host "`n[Info] Lanzando descargas en segundo plano..."
           $jobs = foreach ($dl in $downloads) {
               Start-Job -ScriptBlock {
                   param($name, $path, $url)
@@ -83,41 +82,30 @@ jobs:
                   try {
                       $ProgressPreference = 'SilentlyContinue' 
                       Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
-                      if ((Get-Item $path).Length -lt 1024) {
-                          Remove-Item $path -Force
-                          return "[Error] $name descargo 0 bytes o corrupto."
-                      }
+                      if ((Get-Item $path).Length -lt 1024) { return "[Error] $name descargo 0 bytes o corrupto." }
                       return "[OK] $name descargado exitosamente."
-                  } catch {
-                      return "[Error] Fallo en $name : $($Error[0])"
-                  }
+                  } catch { return "[Error] Fallo en $name : $($Error[0])" }
               } -ArgumentList $dl.Name, $dl.OutPath, $dl.Url
           }
 
-          Write-Host "`n[Info] Esperando a que finalicen las descargas de APKs..."
           Wait-Job $jobs | Out-Null
           Receive-Job $jobs | Write-Host
           Remove-Job $jobs
 
-          Write-Host "[Info] Proceso de descargas finalizado."
-
       - name: 🚀 Optimizar APKs (Zipalign)
         run: |
-          for %%f in (new_apks\*.apk) do (
+          for %%f in (build_temp\new_apks\*.apk) do (
               "C:\AndroidSDK\build-tools\34.0.0\zipalign.exe" -p -v 4 "%%f" "%%~dpnf-aligned.apk"
               if exist "%%~dpnf-aligned.apk" (
                   move /y "%%~dpnf-aligned.apk" "%%f"
               )
           )
 
-      - name: 🔍 Obtener versiones y generar Changelog Base (Separado del Original)
+      - name: 🔍 Generar Variables y Changelogs
         id: vars
         shell: powershell
         run: |
-          # Usamos un archivo .prop completamente separado
           $modulePrePath = "module-pre.prop"
-          
-          # Si no existe, creamos uno base que no tenga nada que ver con el original
           if (-not (Test-Path $modulePrePath)) { 
               "id=MicroGiskGApps-Pre`nname=MicroGiskGApps (Pre)`nversion=A13.0-PRE`nversionCode=1`nauthor=TuNombre`ndescription=Modulo MicroG Pre-Release independiente." | Set-Content $modulePrePath 
           }
@@ -132,19 +120,16 @@ jobs:
           }
           
           $newVc = $oldVc + 1
-          
           $parts = $oldVer.Split('.')
           $major = [int]$parts[0]
           $minor = 0
           if ($parts.Length -gt 1) { $minor = [int]$parts[1] }
           $minor++
           if ($minor -ge 10) { $major++; $minor = 0 }
-          
           $newVer = "A" + $major + "." + $minor + "-PRE"
           
           $newContent = @()
           $hasId = $false; $hasName = $false; $hasVersion = $false; $hasVc = $false
-          
           foreach ($line in $content) {
               if ($line -match "^id=") { $newContent += "id=MicroGiskGApps-Pre"; $hasId = $true }
               elseif ($line -match "^name=") { $newContent += "name=MicroGiskGApps (Pre)"; $hasName = $true }
@@ -152,7 +137,6 @@ jobs:
               elseif ($line -match "^versionCode=") { $newContent += "versionCode=$newVc"; $hasVc = $true }
               else { $newContent += $line }
           }
-          
           if (-not $hasId) { $newContent += "id=MicroGiskGApps-Pre" }
           if (-not $hasName) { $newContent += "name=MicroGiskGApps (Pre)" }
           if (-not $hasVersion) { $newContent += "version=$newVer" }
@@ -163,7 +147,6 @@ jobs:
           echo "NEW_VC=$newVc" >> $env:GITHUB_ENV
           echo "FINAL_TAG=$newVer" >> $env:GITHUB_ENV
           
-          # Generar changelogs separados
           $changelogBase = @"
           ### Changelog / Registro de cambios (Pre-release)
           #### Nucleo (Core)
@@ -175,20 +158,36 @@ jobs:
           #### Tienda y Servicios (Store & Services)
           - **Aurora Store**: Actualizado
           - **Aurora Services**: Actualizado
-          - **Google Contacts Sync**: Actualizado (dreamwhite)
-          - **Google Calendar Sync**: Actualizado (dreamwhite)
+          - **Google Contacts Sync**: Actualizado
+          - **Google Calendar Sync**: Actualizado
           "@
-          
           $changelogBase | Set-Content "changelog-pre.md"
           
           $changelog32 = $changelogBase -replace "\(Pre-release\)", "(Pre-release 32-bit)"
           $changelog32 | Set-Content "changelog-pre32.md"
 
+          $repo = "${{ github.repository }}"
+          @"
+          {
+            "version": "$newVer",
+            "versionCode": $newVc,
+            "zipUrl": "https://github.com/$repo/releases/download/$newVer/MicroGiskGApps-64.zip",
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre.md"
+          }
+          "@ | Set-Content "update-pre.json"
+          
+          @"
+          {
+            "version": "$newVer",
+            "versionCode": $newVc,
+            "zipUrl": "https://github.com/$repo/releases/download/$newVer/MicroGiskGApps-32.zip",
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre32.md"
+          }
+          "@ | Set-Content "update-pre32.json"
+
       - name: 🔐 Generar Archivos de Permisos Totales (XML)
         shell: powershell
         run: |
-          if (-not (Test-Path "new_permissions")) { New-Item -ItemType Directory -Path "new_permissions" | Out-Null }
-          
           $privAppXml = @"
           <?xml version="1.0" encoding="utf-8"?>
           <permissions>
@@ -224,7 +223,7 @@ jobs:
               </privapp-permissions>
           </permissions>
           "@
-          $privAppXml | Set-Content "new_permissions\privapp-permissions-microg.xml" -Encoding UTF8
+          $privAppXml | Set-Content "build_temp\new_permissions\privapp-permissions-microg.xml" -Encoding UTF8
           
           $sysConfigXml = @"
           <?xml version="1.0" encoding="utf-8"?>
@@ -238,21 +237,18 @@ jobs:
               <allow-ignore-location-settings package="com.google.android.gms"/>
           </config>
           "@
-          $sysConfigXml | Set-Content "new_permissions\sysconfig-microg.xml" -Encoding UTF8
+          $sysConfigXml | Set-Content "build_temp\new_permissions\sysconfig-microg.xml" -Encoding UTF8
 
-      - name: 🛠️ Construir Zips (32-bit y 64-bit)
+      - name: 🛠️ Construir Zips en carpeta Temporal
         shell: powershell
         run: |
-          if (Test-Path "mmt_template") { Remove-Item "mmt_template" -Recurse -Force }
-          git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
+          git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git "build_temp\mmt_template"
           
           $arches = @("32", "64")
           
           foreach ($arch in $arches) {
-              $buildDir = "build-$arch"
-              if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
-              
-              Copy-Item -Path "mmt_template" -Destination $buildDir -Recurse
+              $buildDir = "build_temp\build-$arch"
+              Copy-Item -Path "build_temp\mmt_template" -Destination $buildDir -Recurse
               
               $itemsToRemove = @(".git", ".github", "README.md", ".gitignore", "changelog.md", "LICENSE", "update.json", "install.zip", "zygisk")
               foreach ($item in $itemsToRemove) {
@@ -262,54 +258,32 @@ jobs:
               Get-ChildItem -Path $buildDir -Recurse -Filter "*placeholder*" | Remove-Item -Force
               
               $dirs = @(
-                  "system\priv-app\GmsCore",
-                  "system\priv-app\Companion",
-                  "system\priv-app\FakeGApps",
-                  "system\priv-app\AuroraServices",
-                  "system\priv-app\AuroraStore",
-                  "system\app\GsfProxy",
-                  "system\app\GoogleContactsSync",
-                  "system\app\GoogleCalendarSync",
-                  "system\etc\permissions",
-                  "system\etc\sysconfig"
+                  "system\priv-app\GmsCore", "system\priv-app\Companion", "system\priv-app\FakeGApps",
+                  "system\priv-app\AuroraServices", "system\priv-app\AuroraStore", "system\app\GsfProxy",
+                  "system\app\GoogleContactsSync", "system\app\GoogleCalendarSync", "system\etc\permissions", "system\etc\sysconfig"
               )
-              foreach ($dir in $dirs) {
-                  $fullPath = Join-Path $buildDir $dir
-                  New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
-              }
+              foreach ($dir in $dirs) { New-Item -ItemType Directory -Path (Join-Path $buildDir $dir) -Force | Out-Null }
               
-              # Copiamos module-pre.prop pero con el nombre module.prop dentro del ZIP (Magisk lo requiere)
               Copy-Item "module-pre.prop" -Destination "$buildDir\module.prop" -Force
-              
               if (Test-Path "uninstall.sh") { Copy-Item "uninstall.sh" -Destination $buildDir -Force }
               if (Test-Path "common") { Copy-Item "common\*" -Destination "$buildDir\common\" -Recurse -Force }
               if (Test-Path "system") { Copy-Item "system\*" -Destination "$buildDir\system\" -Recurse -Force }
               
               $apkMap = @{
-                  "GmsCore.apk" = "system\priv-app\GmsCore"
-                  "Companion.apk" = "system\priv-app\Companion"
-                  "FakeGApps.apk" = "system\priv-app\FakeGApps"
-                  "AuroraStore.apk" = "system\priv-app\AuroraStore"
-                  "AuroraServices.apk" = "system\priv-app\AuroraServices"
-                  "GsfProxy.apk" = "system\app\GsfProxy"
-                  "GoogleContactsSync.apk" = "system\app\GoogleContactsSync"
-                  "GoogleCalendarSync.apk" = "system\app\GoogleCalendarSync"
+                  "GmsCore.apk" = "system\priv-app\GmsCore"; "Companion.apk" = "system\priv-app\Companion"
+                  "FakeGApps.apk" = "system\priv-app\FakeGApps"; "AuroraStore.apk" = "system\priv-app\AuroraStore"
+                  "AuroraServices.apk" = "system\priv-app\AuroraServices"; "GsfProxy.apk" = "system\app\GsfProxy"
+                  "GoogleContactsSync.apk" = "system\app\GoogleContactsSync"; "GoogleCalendarSync.apk" = "system\app\GoogleCalendarSync"
               }
               
               foreach ($key in $apkMap.Keys) {
-                  $src = Join-Path "new_apks" $key
-                  if (Test-Path $src) {
-                      $destDir = Join-Path $buildDir $apkMap[$key]
-                      Copy-Item $src -Destination "$destDir\$key" -Force
-                  } else {
-                      Write-Host "[Error] ¡Falta el archivo $key! La carpeta en el ZIP quedará vacía." -ForegroundColor Red
-                  }
+                  $src = Join-Path "build_temp\new_apks" $key
+                  if (Test-Path $src) { Copy-Item $src -Destination "$(Join-Path $buildDir $apkMap[$key])\$key" -Force }
               }
               
-              Copy-Item "new_permissions\privapp-permissions-microg.xml" -Destination "$buildDir\system\etc\permissions\" -Force
-              Copy-Item "new_permissions\sysconfig-microg.xml" -Destination "$buildDir\system\etc\sysconfig\" -Force
+              Copy-Item "build_temp\new_permissions\privapp-permissions-microg.xml" -Destination "$buildDir\system\etc\permissions\" -Force
+              Copy-Item "build_temp\new_permissions\sysconfig-microg.xml" -Destination "$buildDir\system\etc\sysconfig\" -Force
               
-              # Asignamos el JSON correcto al module.prop *DENTRO* del ZIP
               $jsonFile = if ($arch -eq "32") { "update-pre32.json" } else { "update-pre.json" }
               $repo = "${{ github.repository }}"
               $modPropPath = "$buildDir\module.prop"
@@ -320,70 +294,46 @@ jobs:
                   if ($line -match "^updateJson=") {
                       $newPropContent += "updateJson=https://raw.githubusercontent.com/$repo/main/$jsonFile"
                       $hasUpdateJson = $true
-                  } else {
-                      $newPropContent += $line
-                  }
+                  } else { $newPropContent += $line }
               }
-              if (-not $hasUpdateJson) {
-                  $newPropContent += "updateJson=https://raw.githubusercontent.com/$repo/main/$jsonFile"
-              }
+              if (-not $hasUpdateJson) { $newPropContent += "updateJson=https://raw.githubusercontent.com/$repo/main/$jsonFile" }
               $newPropContent | Set-Content $modPropPath
               
-              $zipName = "MicroGiskGApps-$arch.zip"
-              if (Test-Path $zipName) { Remove-Item $zipName -Force }
-              Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName -Force
+              Compress-Archive -Path "$buildDir\*" -DestinationPath "build_temp\MicroGiskGApps-$arch.zip" -Force
           }
 
-      - name: 📝 Generar update.jsons y Commitear cambios al Repo
+      - name: 🚀 Commit, Push y Publicar Pre-Release (Atómico)
         shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $repo = "${{ github.repository }}"
           $tag = "${{ env.FINAL_TAG }}"
           $vc = ${{ env.NEW_VC }}
           
-          $updateJson = @"
-          {
-            "version": "$tag",
-            "versionCode": $vc,
-            "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-64.zip",
-            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre.md"
-          }
-          "@
-          $updateJson | Set-Content "update-pre.json"
-          
-          # Actualizado para apuntar al changelog de 32 bits
-          $update32Json = @"
-          {
-            "version": "$tag",
-            "versionCode": $vc,
-            "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-32.zip",
-            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre32.md"
-          }
-          "@
-          $update32Json | Set-Content "update-pre32.json"
-
+          # 1. Realizar Commit y Push primero
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Hacemos commit exclusivamente de los archivos -pre y -pre32
           git add module-pre.prop update-pre.json update-pre32.json changelog-pre.md changelog-pre32.md
           
           $status = git status --porcelain
           if ($status) {
+              Write-Host "[Info] Subiendo cambios de archivos al repositorio..."
               git commit -m "🚀 Pre-Release Update to $tag (VersionCode: $vc)"
               git push origin HEAD:main
           } else {
-              Write-Host "Nothing to commit"
+              Write-Host "[Info] No hay cambios para comitear."
           }
+          
+          # 2. Inmediatamente despues, crear la Release en Github usando Github CLI
+          Write-Host "[Info] Publicando Pre-Release en GitHub..."
+          gh release create $tag "build_temp\MicroGiskGApps-32.zip" "build_temp\MicroGiskGApps-64.zip" --title "$tag - PRE-RELEASE Build" --notes-file changelog-pre.md --prerelease
 
-      - name: 🚀 Publicar Pre-Release en GitHub
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - PRE-RELEASE Build"
-          body_path: changelog-pre.md
-          prerelease: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-          files: |
-            MicroGiskGApps-32.zip
-            MicroGiskGApps-64.zip
+      - name: 🧹 Limpieza Final
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path "build_temp") {
+              Write-Host "[Info] Eliminando carpeta temporal build_temp..."
+              Remove-Item -Path "build_temp" -Recurse -Force
+          }
