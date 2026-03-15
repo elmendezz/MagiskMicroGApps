@@ -1,4 +1,4 @@
-name: Actualizar MagiskMicroGApps (Windows CMD)
+name: Actualizar MagiskMicroGApps (Windows CMD - Pre-release)
 
 on:
   workflow_dispatch:
@@ -137,21 +137,21 @@ jobs:
           $minor++
           if ($minor -ge 10) { $major++; $minor = 0 }
           
-          $newVer = "A" + $major + "." + $minor + "-MicroG"
+          $newVer = "A" + $major + "." + $minor + "-PRE"
           
           $newContent = @()
           $hasId = $false; $hasName = $false; $hasVersion = $false; $hasVc = $false
           
           foreach ($line in $content) {
               if ($line -match "^id=") { $newContent += "id=MicroGiskGApps"; $hasId = $true }
-              elseif ($line -match "^name=") { $newContent += "name=MicroGiskGApps"; $hasName = $true }
+              elseif ($line -match "^name=") { $newContent += "name=MicroGiskGApps (Pre)"; $hasName = $true }
               elseif ($line -match "^version=") { $newContent += "version=$newVer"; $hasVersion = $true }
               elseif ($line -match "^versionCode=") { $newContent += "versionCode=$newVc"; $hasVc = $true }
               else { $newContent += $line }
           }
           
           if (-not $hasId) { $newContent += "id=MicroGiskGApps" }
-          if (-not $hasName) { $newContent += "name=MicroGiskGApps" }
+          if (-not $hasName) { $newContent += "name=MicroGiskGApps (Pre)" }
           if (-not $hasVersion) { $newContent += "version=$newVer" }
           if (-not $hasVc) { $newContent += "versionCode=$newVc" }
           
@@ -173,7 +173,6 @@ jobs:
           - **Aurora Services**: Actualizado
           - **Google Contacts Sync**: Actualizado (dreamwhite)
           - **Google Calendar Sync**: Actualizado (dreamwhite)
-          
           "@
           $changelog | Set-Content "changelog-pre.md"
 
@@ -300,6 +299,7 @@ jobs:
               Copy-Item "new_permissions\privapp-permissions-microg.xml" -Destination "$buildDir\system\etc\permissions\" -Force
               Copy-Item "new_permissions\sysconfig-microg.xml" -Destination "$buildDir\system\etc\sysconfig\" -Force
               
+              # Aquí se asigna update-pre32.json o update-pre.json a module.prop dentro del ZIP
               $jsonFile = if ($arch -eq "32") { "update-pre32.json" } else { "update-pre.json" }
               $repo = "${{ github.repository }}"
               $modPropPath = "$buildDir\module.prop"
@@ -323,18 +323,6 @@ jobs:
               if (Test-Path $zipName) { Remove-Item $zipName -Force }
               Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName -Force
           }
-
-      - name: 🔒 Generar Hashes de Seguridad y anexar al Changelog (COMENTADO)
-        shell: powershell
-        run: |
-          # $hash64 = (Get-FileHash -Path "MicroGiskGApps-64.zip" -Algorithm SHA256).Hash.ToLower()
-          # $hash32 = (Get-FileHash -Path "MicroGiskGApps-32.zip" -Algorithm SHA256).Hash.ToLower()
-          # 
-          # Add-Content -Path "changelog-pre.md" -Value "`n### Checksums (SHA256)"
-          # 
-          # Add-Content -Path "changelog-pre.md" -Value ('- **64-bit:** `' + $hash64 + '`')
-          # Add-Content -Path "changelog-pre.md" -Value ('- **32-bit:** `' + $hash32 + '`')
-          Write-Host "[Info] Paso de hashes omitido por el momento."
 
       - name: 📝 Generar update.jsons y Commitear cambios al Repo
         shell: powershell
@@ -367,15 +355,16 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update-pre.json update-pre32.json changelog-pre.md
-          git commit -m "🚀 Update to $tag (VersionCode: $vc)" || echo "Nothing to commit"
+          git commit -m "🚀 Pre-Release Update to $tag (VersionCode: $vc)" || echo "Nothing to commit"
           git push origin HEAD:main
 
-      - name: 🚀 Publicar Release en GitHub
+      - name: 🚀 Publicar Pre-Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
+          name: "${{ env.FINAL_TAG }} - PRE-RELEASE Build"
           body_path: changelog-pre.md
+          prerelease: true # <- ESTO MARCA EL RELEASE COMO PRERELEASE OFICIAL EN GITHUB
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
