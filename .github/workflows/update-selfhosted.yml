@@ -57,12 +57,13 @@ jobs:
           $gsfProxyUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GsfProxy/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
 
-          # 7. Google Sync Adapters (Desde dreamwhite)
+          # 7. Google Sync Adapters
           $contactsUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
           $calendarUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
 
           $workspace = Get-Location
 
+          # --- INICIO DE DESCARGAS EN PARALELO ---
           $downloads = @(
               @{ Name = "MicroG"; OutPath = "$workspace\new_apks\GmsCore.apk"; Url = $microgUrl },
               @{ Name = "Companion"; OutPath = "$workspace\new_apks\Companion.apk"; Url = $companionUrl },
@@ -96,6 +97,7 @@ jobs:
           Wait-Job $jobs | Out-Null
           Receive-Job $jobs | Write-Host
           Remove-Job $jobs
+
           Write-Host "[Info] Proceso de descargas finalizado."
 
       - name: 🚀 Optimizar APKs (Zipalign)
@@ -107,41 +109,45 @@ jobs:
               )
           )
 
-      - name: 🔍 Extraer Versiones con AAPT y generar Changelog Base
+      - name: 🔍 Obtener Versiones (aapt) y Generar Changelog
         id: vars
         shell: powershell
         run: |
           $aapt = "C:\AndroidSDK\build-tools\34.0.0\aapt.exe"
           
-          # Función para extraer el versionName usando aapt
+          # Función segura para evitar el error de array nulo
           function Get-ApkVersion {
               param($ApkPath)
-              if (Test-Path $ApkPath) {
-                  $output = &$aapt dump badging $ApkPath 2>&1
-                  if ($output -match "versionName='([^']+)'") {
-                      return $matches[1]
-                  }
+              if (-not (Test-Path $ApkPath)) { return "No encontrado" }
+              
+              $output = & $aapt dump badging $ApkPath 2>$null
+              $match = $output | Select-String -Pattern "versionName='([^']+)'"
+              
+              # Solo intentamos indexar si la regex funcionó ($match no es nulo)
+              if ($match -and $match.Matches.Count -gt 0) {
+                  return $match.Matches[0].Groups[1].Value
               }
-              return "Actualizado" # Fallback si falla
+              return "Actualizado"
           }
 
           Write-Host "[Info] Extrayendo versiones de las APKs..."
-          $verMicroG = Get-ApkVersion "new_apks\GmsCore.apk"
+          $verMicroG    = Get-ApkVersion "new_apks\GmsCore.apk"
           $verCompanion = Get-ApkVersion "new_apks\Companion.apk"
-          $verAurora = Get-ApkVersion "new_apks\AuroraStore.apk"
-          $verServices = Get-ApkVersion "new_apks\AuroraServices.apk"
-          $verFakeGapps = Get-ApkVersion "new_apks\FakeGApps.apk"
-          $verGsf = Get-ApkVersion "new_apks\GsfProxy.apk"
-          $verContacts = Get-ApkVersion "new_apks\GoogleContactsSync.apk"
-          $verCalendar = Get-ApkVersion "new_apks\GoogleCalendarSync.apk"
+          $verAurora    = Get-ApkVersion "new_apks\AuroraStore.apk"
+          $verAuroraSvc = Get-ApkVersion "new_apks\AuroraServices.apk"
+          $verFakeGApps = Get-ApkVersion "new_apks\FakeGApps.apk"
+          $verGsfProxy  = Get-ApkVersion "new_apks\GsfProxy.apk"
+          $verContacts  = Get-ApkVersion "new_apks\GoogleContactsSync.apk"
+          $verCalendar  = Get-ApkVersion "new_apks\GoogleCalendarSync.apk"
 
           $modulePrePath = "module-pre.prop"
           if (-not (Test-Path $modulePrePath)) { 
-              "id=MicroGiskGApps-Pre`nname=MicroGiskGApps (Pre)`nversion=A13.0-PRE`nversionCode=1`nauthor=TuNombre`ndescription=Modulo MicroG Pre-Release independiente." | Set-Content $modulePrePath 
+              "id=MicroGiskGApps-Pre`nname=MicroGiskGApps (Pre)`nversion=A13.0-PRE`nversionCode=1`nauthor=TuNombre`ndescription=Modulo MicroG Pre-Release." | Set-Content $modulePrePath 
           }
           
           $content = Get-Content $modulePrePath
-          $oldVc = 1; $oldVer = "13.0"
+          $oldVc = 1
+          $oldVer = "13.0"
           
           foreach ($line in $content) {
               if ($line -match "^versionCode=(\d+)") { $oldVc = [int]$matches[1] }
@@ -149,10 +155,13 @@ jobs:
           }
           
           $newVc = $oldVc + 1
+          
           $parts = $oldVer.Split('.')
-          $major = [int]$parts[0]; $minor = 0
+          $major = [int]$parts[0]
+          $minor = 0
           if ($parts.Length -gt 1) { $minor = [int]$parts[1] }
-          $minor++; if ($minor -ge 10) { $major++; $minor = 0 }
+          $minor++
+          if ($minor -ge 10) { $major++; $minor = 0 }
           
           $newVer = "A" + $major + "." + $minor + "-PRE"
           
@@ -166,6 +175,7 @@ jobs:
               elseif ($line -match "^versionCode=") { $newContent += "versionCode=$newVc"; $hasVc = $true }
               else { $newContent += $line }
           }
+          
           if (-not $hasId) { $newContent += "id=MicroGiskGApps-Pre" }
           if (-not $hasName) { $newContent += "name=MicroGiskGApps (Pre)" }
           if (-not $hasVersion) { $newContent += "version=$newVer" }
@@ -176,18 +186,17 @@ jobs:
           echo "NEW_VC=$newVc" >> $env:GITHUB_ENV
           echo "FINAL_TAG=$newVer" >> $env:GITHUB_ENV
           
-          # Inyectamos las versiones extraidas con aapt en el changelog
           $changelogBase = @"
           ### Changelog / Registro de cambios (Pre-release)
           #### Nucleo (Core)
           - **MicroG (GmsCore)**: $verMicroG
           - **MicroG Companion**: $verCompanion
-          - **GsfProxy**: $verGsf
-          - **FakeGApps**: $verFakeGapps
+          - **GsfProxy**: $verGsfProxy
+          - **FakeGApps**: $verFakeGApps
           
           #### Tienda y Servicios (Store & Services)
           - **Aurora Store**: $verAurora
-          - **Aurora Services**: $verServices
+          - **Aurora Services**: $verAuroraSvc
           - **Google Contacts Sync**: $verContacts (dreamwhite)
           - **Google Calendar Sync**: $verCalendar (dreamwhite)
           "@
@@ -260,6 +269,7 @@ jobs:
           git clone --depth 1 https://github.com/Zackptg5/MMT-Extended.git mmt_template
           
           $arches = @("32", "64")
+          
           foreach ($arch in $arches) {
               $buildDir = "build-$arch"
               if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
@@ -273,13 +283,25 @@ jobs:
               }
               Get-ChildItem -Path $buildDir -Recurse -Filter "*placeholder*" | Remove-Item -Force
               
-              $dirs = @("system\priv-app\GmsCore", "system\priv-app\Companion", "system\priv-app\FakeGApps", "system\priv-app\AuroraServices", "system\priv-app\AuroraStore", "system\app\GsfProxy", "system\app\GoogleContactsSync", "system\app\GoogleCalendarSync", "system\etc\permissions", "system\etc\sysconfig")
+              $dirs = @(
+                  "system\priv-app\GmsCore",
+                  "system\priv-app\Companion",
+                  "system\priv-app\FakeGApps",
+                  "system\priv-app\AuroraServices",
+                  "system\priv-app\AuroraStore",
+                  "system\app\GsfProxy",
+                  "system\app\GoogleContactsSync",
+                  "system\app\GoogleCalendarSync",
+                  "system\etc\permissions",
+                  "system\etc\sysconfig"
+              )
               foreach ($dir in $dirs) {
                   $fullPath = Join-Path $buildDir $dir
                   New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
               }
               
               Copy-Item "module-pre.prop" -Destination "$buildDir\module.prop" -Force
+              
               if (Test-Path "uninstall.sh") { Copy-Item "uninstall.sh" -Destination $buildDir -Force }
               if (Test-Path "common") { Copy-Item "common\*" -Destination "$buildDir\common\" -Recurse -Force }
               if (Test-Path "system") { Copy-Item "system\*" -Destination "$buildDir\system\" -Recurse -Force }
@@ -300,7 +322,9 @@ jobs:
                   if (Test-Path $src) {
                       $destDir = Join-Path $buildDir $apkMap[$key]
                       Copy-Item $src -Destination "$destDir\$key" -Force
-                  } else { Write-Host "[Error] ¡Falta el archivo $key!" -ForegroundColor Red }
+                  } else {
+                      Write-Host "[Error] ¡Falta el archivo $key! La carpeta en el ZIP quedará vacía." -ForegroundColor Red
+                  }
               }
               
               Copy-Item "new_permissions\privapp-permissions-microg.xml" -Destination "$buildDir\system\etc\permissions\" -Force
@@ -316,9 +340,13 @@ jobs:
                   if ($line -match "^updateJson=") {
                       $newPropContent += "updateJson=https://raw.githubusercontent.com/$repo/main/$jsonFile"
                       $hasUpdateJson = $true
-                  } else { $newPropContent += $line }
+                  } else {
+                      $newPropContent += $line
+                  }
               }
-              if (-not $hasUpdateJson) { $newPropContent += "updateJson=https://raw.githubusercontent.com/$repo/main/$jsonFile" }
+              if (-not $hasUpdateJson) {
+                  $newPropContent += "updateJson=https://raw.githubusercontent.com/$repo/main/$jsonFile"
+              }
               $newPropContent | Set-Content $modPropPath
               
               $zipName = "MicroGiskGApps-$arch.zip"
@@ -326,20 +354,34 @@ jobs:
               Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName -Force
           }
 
-      - name: 📝 Generar archivos update.json (Sin commitear)
+      - name: 📝 Generar archivos update.json (Sin commitear aún)
         shell: powershell
         run: |
           $repo = "${{ github.repository }}"
           $tag = "${{ env.FINAL_TAG }}"
           $vc = ${{ env.NEW_VC }}
           
-          $updateJson = @"{`n `"version`": `"$tag`",`n `"versionCode`": $vc,`n `"zipUrl`": `"https://github.com/$repo/releases/download/$tag/MicroGiskGApps-64.zip`",`n `"changelog`": `"https://raw.githubusercontent.com/$repo/main/changelog-pre.md`"`n}"@
+          $updateJson = @"
+          {
+            "version": "$tag",
+            "versionCode": $vc,
+            "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-64.zip",
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre.md"
+          }
+          "@
           $updateJson | Set-Content "update-pre.json"
           
-          $update32Json = @"{`n `"version`": `"$tag`",`n `"versionCode`": $vc,`n `"zipUrl`": `"https://github.com/$repo/releases/download/$tag/MicroGiskGApps-32.zip`",`n `"changelog`": `"https://raw.githubusercontent.com/$repo/main/changelog-pre32.md`"`n}"@
+          $update32Json = @"
+          {
+            "version": "$tag",
+            "versionCode": $vc,
+            "zipUrl": "https://github.com/$repo/releases/download/$tag/MicroGiskGApps-32.zip",
+            "changelog": "https://raw.githubusercontent.com/$repo/main/changelog-pre32.md"
+          }
+          "@
           $update32Json | Set-Content "update-pre32.json"
 
-      - name: 🚀 Publicar Pre-Release en GitHub (Vía Action Oficial)
+      - name: 🚀 Publicar Pre-Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
@@ -351,8 +393,7 @@ jobs:
             MicroGiskGApps-32.zip
             MicroGiskGApps-64.zip
 
-      - name: 💾 Commitear cambios al Repo (Post-Release)
-        if: success()
+      - name: 💾 Commitear cambios al Repo (Solo si la Release fue exitosa)
         shell: powershell
         run: |
           git config --global user.name "github-actions[bot]"
@@ -364,7 +405,7 @@ jobs:
           if ($status) {
               git commit -m "🚀 Pre-Release Update to ${{ env.FINAL_TAG }} (VersionCode: ${{ env.NEW_VC }})"
               git push origin HEAD:main
-              Write-Host "[OK] Cambios guardados en el repositorio."
+              Write-Host "[OK] Cambios guardados en el repositorio exitosamente."
           } else {
               Write-Host "[Info] No hay cambios para commitear."
           }
@@ -373,9 +414,21 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          Write-Host "[Info] Limpiando entorno de trabajo..."
-          $itemsToClean = @("new_apks", "new_permissions", "mmt_template", "build-32", "build-64", "MicroGiskGApps-32.zip", "MicroGiskGApps-64.zip")
+          Write-Host "[Info] Limpiando entorno de trabajo del self-hosted runner..."
+          $itemsToClean = @(
+              "new_apks", 
+              "new_permissions", 
+              "mmt_template", 
+              "build-32", 
+              "build-64", 
+              "MicroGiskGApps-32.zip", 
+              "MicroGiskGApps-64.zip"
+          )
+          
           foreach ($item in $itemsToClean) {
-              if (Test-Path $item) { Remove-Item $item -Recurse -Force; Write-Host "  - Eliminado: $item" }
+              if (Test-Path $item) { 
+                  Remove-Item $item -Recurse -Force 
+                  Write-Host "  - Eliminado: $item"
+              }
           }
           Write-Host "[OK] Limpieza finalizada."
