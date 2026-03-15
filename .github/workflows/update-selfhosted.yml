@@ -57,6 +57,10 @@ jobs:
           $gsfProxyUrl = (Invoke-RestMethod 'https://api.github.com/repos/microg/GsfProxy/releases/latest').assets | Where-Object { $_.name -like '*.apk' } | Select-Object -ExpandProperty browser_download_url -First 1
           if (-not $gsfProxyUrl) { $gsfProxyUrl = "https://github.com/microg/GsfProxy/releases/download/v0.1.0/GsfProxy.apk" }
 
+          # 7. Google Sync Adapters (Desde dreamwhite)
+          $contactsUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleContactsSyncAdapter/GoogleContactsSyncAdapter.apk"
+          $calendarUrl = "https://raw.githubusercontent.com/dreamwhite/gsync_adapters_for_magisk/master/system/app/GoogleCalendarSyncAdapter/GoogleCalendarSyncAdapter.apk"
+
           # Obtenemos la ruta absoluta del workspace para el paralelismo
           $workspace = Get-Location
 
@@ -67,7 +71,9 @@ jobs:
               @{ Name = "Aurora Store"; OutPath = "$workspace\new_apks\AuroraStore.apk"; Url = $auroraUrl },
               @{ Name = "Aurora Services"; OutPath = "$workspace\new_apks\AuroraServices.apk"; Url = $svcUrl },
               @{ Name = "FakeGApps"; OutPath = "$workspace\new_apks\FakeGApps.apk"; Url = $fakeGappsUrl },
-              @{ Name = "GsfProxy"; OutPath = "$workspace\new_apks\GsfProxy.apk"; Url = $gsfProxyUrl }
+              @{ Name = "GsfProxy"; OutPath = "$workspace\new_apks\GsfProxy.apk"; Url = $gsfProxyUrl },
+              @{ Name = "Google Contacts Sync"; OutPath = "$workspace\new_apks\GoogleContactsSync.apk"; Url = $contactsUrl },
+              @{ Name = "Google Calendar Sync"; OutPath = "$workspace\new_apks\GoogleCalendarSync.apk"; Url = $calendarUrl }
           )
 
           Write-Host "`n[Info] Lanzando descargas en segundo plano con rutas absolutas..."
@@ -87,45 +93,6 @@ jobs:
                       return "[Error] Fallo en $name : $($Error[0])"
                   }
               } -ArgumentList $dl.Name, $dl.OutPath, $dl.Url
-          }
-
-          # 7. Mientras se descarga todo lo anterior, extraemos las Sync Apps
-          Write-Host "`n[Info] Procesando Google Sync Apps simultaneamente..."
-          $repo = "${{ github.repository }}"
-          $zipUrl = $null
-          
-          try {
-              $latestRelease = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -ErrorAction Stop
-              $zipUrl = ($latestRelease.assets | Where-Object { $_.name -eq "MicroGiskGApps-32.zip" }).browser_download_url
-          } catch {
-              Write-Host "[Aviso] No se encontro un release anterior valido en este repositorio."
-          }
-
-          # LÓGICA DE FALLBACK (Respaldo)
-          if (-not $zipUrl) {
-              Write-Host "[Info] Usando URL de respaldo (elmendezz) para las Sync Apps..."
-              $zipUrl = "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A26.3-MicroG/MicroGiskGApps-32.zip"
-          }
-
-          if ($zipUrl) {
-              try {
-                  $ProgressPreference = 'SilentlyContinue'
-                  Invoke-WebRequest -Uri $zipUrl -OutFile "latest_base.zip" -UseBasicParsing
-                  Expand-Archive -Path "latest_base.zip" -DestinationPath "extracted_base" -Force
-                  
-                  if (Test-Path "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk") {
-                      Copy-Item "extracted_base\system\app\GoogleContactsSync\GoogleContactsSync.apk" -Destination "$workspace\new_apks\GoogleContactsSync.apk" -Force
-                      Write-Host "[OK] Google Contacts Sync extraido."
-                  }
-                  if (Test-Path "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk") {
-                      Copy-Item "extracted_base\system\app\GoogleCalendarSync\GoogleCalendarSync.apk" -Destination "$workspace\new_apks\GoogleCalendarSync.apk" -Force
-                      Write-Host "[OK] Google Calendar Sync extraido."
-                  }
-                  Remove-Item "latest_base.zip" -Force
-                  Remove-Item "extracted_base" -Recurse -Force
-              } catch {
-                  Write-Host "[Error] Fallo al descargar o extraer el ZIP de respaldo: $($Error[0])"
-              }
           }
 
           # --- ESPERAR A QUE TERMINEN LAS DESCARGAS ---
@@ -204,8 +171,8 @@ jobs:
           #### Tienda y Servicios (Store & Services)
           - **Aurora Store**: Actualizado
           - **Aurora Services**: Actualizado
-          - **Google Contacts Sync**: Mantenido
-          - **Google Calendar Sync**: Mantenido
+          - **Google Contacts Sync**: Actualizado (dreamwhite)
+          - **Google Calendar Sync**: Actualizado (dreamwhite)
           
           "@
           $changelog | Set-Content "changelog-pre.md"
@@ -395,27 +362,21 @@ jobs:
           }
           "@
           $update32Json | Set-Content "update-pre32.json"
-          
+
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update-pre.json update-pre32.json changelog-pre.md
-          git commit -m "Update to $tag (VersionCode: $vc)"
-          
-          $success = $false
-          for ($i = 1; $i -le 3; $i++) {
-              try {
-                  cmd.exe /c "git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main"
-                  if ($LASTEXITCODE -eq 0) {
-                      $success = $true
-                      break
-                  }
-              } catch {
-                  Write-Host "[Advertencia] Intento $i fallido. Reintentando..."
-              }
-          }
-          
-          if (-not $success) {
-              Write-Error "[Error] No se pudo hacer push a GitHub después de 3 intentos."
-              exit 1
-          }
+          git commit -m "🚀 Update to $tag (VersionCode: $vc)" || echo "Nothing to commit"
+          git push origin HEAD:main
+
+      - name: 🚀 Publicar Release en GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.FINAL_TAG }}
+          name: "${{ env.FINAL_TAG }} - ¡New Version Leaked!"
+          body_path: changelog-pre.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            MicroGiskGApps-32.zip
+            MicroGiskGApps-64.zip
