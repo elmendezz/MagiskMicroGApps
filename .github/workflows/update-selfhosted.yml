@@ -355,8 +355,15 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add module.prop update-pre.json update-pre32.json changelog-pre.md
-          git commit -m "🚀 Pre-Release Update to $tag (VersionCode: $vc)" || echo "Nothing to commit"
-          git push origin HEAD:main
+          
+          # SOLUCION AL ERROR || DE POWERSHELL: Usamos if (git status)
+          $status = git status --porcelain
+          if ($status) {
+              git commit -m "🚀 Pre-Release Update to $tag (VersionCode: $vc)"
+              git push origin HEAD:main
+          } else {
+              Write-Host "Nothing to commit"
+          }
 
       - name: 🚀 Publicar Pre-Release en GitHub
         uses: softprops/action-gh-release@v2
@@ -364,7 +371,7 @@ jobs:
           tag_name: ${{ env.FINAL_TAG }}
           name: "${{ env.FINAL_TAG }} - PRE-RELEASE Build"
           body_path: changelog-pre.md
-          prerelease: true # <- ESTO MARCA EL RELEASE COMO PRERELEASE OFICIAL EN GITHUB
+          prerelease: true
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             MicroGiskGApps-32.zip
