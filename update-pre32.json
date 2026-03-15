@@ -1,6 +1,6 @@
 {
-  "version": "A26.5-MicroG",
-  "versionCode": 24,
-  "zipUrl": "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A26.5-MicroG/MicroGiskGApps-32.zip",
+  "version": "A26.6-MicroG",
+  "versionCode": 25,
+  "zipUrl": "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A26.6-MicroG/MicroGiskGApps-32.zip",
   "changelog": "https://raw.githubusercontent.com/elmendezz/MagiskMicroGApps/main/changelog-pre.md"
 }
