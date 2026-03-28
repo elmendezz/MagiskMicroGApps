@@ -385,7 +385,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FINAL_TAG }}
-          name: "${{ env.FINAL_TAG }} - PRE-RELEASE Build"
+          name: "${{ env.FINAL_TAG }} - Test Build"
           body_path: changelog-pre.md
           prerelease: true
           token: ${{ secrets.GITHUB_TOKEN }}
