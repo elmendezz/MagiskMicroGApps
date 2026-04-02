@@ -1,6 +1,6 @@
 {
-  "version": "A54.0-PRE",
-  "versionCode": 110,
-  "zipUrl": "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A54.0-PRE/MicroGiskGApps-64.zip",
+  "version": "A54.1-PRE",
+  "versionCode": 111,
+  "zipUrl": "https://github.com/elmendezz/MagiskMicroGApps/releases/download/A54.1-PRE/MicroGiskGApps-64.zip",
   "changelog": "https://raw.githubusercontent.com/elmendezz/MagiskMicroGApps/main/changelog-pre.md"
 }
