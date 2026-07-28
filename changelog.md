@@ -6,11 +6,11 @@
 - **FakeGApps**: v6.6 (Code: 13)
 
 #### Tienda y Servicios (Store & Services)
-- **Aurora Store**: v4.8.3 (Code: 75)
+- **Aurora Store**: v4.8.4 (Code: 76)
 - **Aurora Services**: v1.1.1 (Code: 11)
 - **Google Contacts Sync**: v10 (Code: 29)
 - **Google Calendar Sync**: v6.0.44-267540251-release (Code: 2016267990)
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `ce9fe94a31d83fcc12218916a9a721c8769f17c3125cf94539eb18b11faea6e4`
-- **32-bit:** `21957ab06e991d7888c308d4ae1c99fd9637f257493a662eda83fc0810b9de3f`
+- **64-bit:** `a2a1762f905c40c45b5a2af6916b76e4d4b10314bebeb61a681423ccd3dd2cce`
+- **32-bit:** `8a5fdb68bddf042917e34b4147f849ed26c75aa940943a9738eab4315ac48067`
