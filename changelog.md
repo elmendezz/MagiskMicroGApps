@@ -1,7 +1,7 @@
 ### Changelog / Registro de cambios
 #### Núcleo (Core)
-- **MicroG (GmsCore)**: v0.3.16.252432 (Code: 252432032)
-- **MicroG Companion**: v0.3.16.40226 (Code: 84022632)
+- **MicroG (GmsCore)**: v0.3.17.252432 (Code: 252432034)
+- **MicroG Companion**: v0.3.17.40226 (Code: 84022634)
 - **GsfProxy**: vv0.1.0 (Code: 8)
 - **FakeGApps**: v6.6 (Code: 13)
 
@@ -12,5 +12,5 @@
 - **Google Calendar Sync**: v6.0.44-267540251-release (Code: 2016267990)
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `83120929d8978e18e22ff1204cb94679e4a3a83831f20c3a945029a4c5ac45d2`
-- **32-bit:** `7fa10fc3c6bf96d0f40b4f8ecbf6bae76d42c4ad4a4fcfc6ee6bba94399558d2`
+- **64-bit:** `e9e6fe986ad8e8dab8db0f7cf8b2c26e6ec91e047dda571f42acf25d368c58a9`
+- **32-bit:** `4ba75cc75f7fab3a8ec85f38fbb9f3edfcc6981a5d70838af09eb61331b035ff`
