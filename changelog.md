@@ -12,5 +12,5 @@
 - **Google Calendar Sync**: v6.0.44-267540251-release (Code: 2016267990)
 
 ### 🔒 Checksums (SHA256)
-- **64-bit:** `886a2311b24397d71f2e8725255a6dc286f70b7cdb4fb463b4741d7049542cfd`
-- **32-bit:** `c6cad1e0aac5db30718ba4bf16a7a934a2049cf615bd2da99265d571cc784518`
+- **64-bit:** `9b5f47d7e97ffc12979a0df99248c080fc31fb500c67dbe490fc8e8220854215`
+- **32-bit:** `cca13503b6380bcd9d32e30cba93bc8b8a3920ef3f5de7a4ca28edbc8368eea3`
